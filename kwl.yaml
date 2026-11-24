@@ -1,0 +1,276 @@
+# ESPHome-Konfiguration für eine KWL Zehnder/Paul Climos (F) 200 am RS485-Bus des Bedienteils.
+# Board: Olimex ESP32-PoE-ISO (Ethernet), Bus-Adapter: Waveshare RS485 mit automatischer
+# Richtungsumschaltung. Protokoll und Verdrahtung: siehe README.md und docs/ im Repository.
+#
+# Benötigte Einträge in secrets.yaml (Vorlage: secrets.example.yaml):
+#   ota_password, kwl_web_password, mqtt_broker, mqtt_username, mqtt_password
+#   (api_encryption_key nur, wenn der api-Block unten für Home Assistant aktiviert wird)
+
+esphome:
+  name: kwl
+  friendly_name: KWL
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [climos]
+
+esp32:
+  board: esp32-poe-iso
+  variant: esp32
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+
+logger:
+  level: DEBUG
+  initial_level: INFO
+
+select:
+  - platform: logger
+    name: "Log-Level"
+
+  # Betriebsart setzen. Zeigt die laufende Betriebsart (Objekt 0x28) und sendet bei Auswahl im
+  # nächsten Fenster nach 01 FF 84 00 (bis ~9 s), nur wenn "Senden aktiv" an ist. Kein Senden
+  # beim Start. Ergebnis im Sensor "Letztes Senden" (bestätigt = 0x29 vom Lüftergerät oder
+  # 0x28 vom Bedienteil mit dem neuen Code innerhalb 3 s, sonst bis zu 2 Wiederholungen).
+  # Reihenfolge = Code 1..6, Namen wie im Sensor "Betriebsart".
+  - platform: template
+    name: "Betriebsart setzen"
+    icon: mdi:fan
+    update_interval: 1s
+    options:
+      - "Stufe 1"
+      - "Stufe 2"
+      - "Stufe 3"
+      - "Stoßlüftung"
+      - "Abwesend"
+      - "Automatik"
+    lambda: |-
+      if (!id(betriebsart).has_state())
+        return {};
+      const std::string &s = id(betriebsart).state;
+      if (s.rfind("Code", 0) == 0)
+        return {};
+      return s;
+    set_action:
+      - lambda: |-
+          static const char *const NAMES[] = {"Stufe 1", "Stufe 2", "Stufe 3", "Stoßlüftung", "Abwesend", "Automatik"};
+          for (uint8_t i = 0; i < 6; i++) {
+            if (x == NAMES[i]) {
+              id(kwl_bus).send_operating_mode(i + 1);
+              return;
+            }
+          }
+
+# Für Home Assistant einkommentieren (hier wird ESPHome ohne Home Assistant über MQTT betrieben).
+#api:
+#  encryption:
+#    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Webserver mit Login, sonst ließen sich "Senden aktiv" und "Betriebsart setzen" ohne
+# Anmeldung bedienen.
+web_server:
+  port: 80
+  auth:
+    username: admin
+    password: !secret kwl_web_password
+
+# Umlaute in Namen werden im Topic zu "_" (aus "Außenluft" wird "au__enluft");
+# betroffene Entitäten haben deshalb ein eigenes state_topic.
+# Broker mit Login verwenden: über MQTT lassen sich "Senden aktiv" und "Betriebsart setzen"
+# bedienen, ein anonymer Broker würde das jedem Client im Netz erlauben.
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  
+ethernet:
+  clk:
+    mode: CLK_OUT
+    pin: GPIO17
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  phy_addr: 0
+  power_pin:
+    ignore_strapping_warning: true
+    number: GPIO12
+  type: LAN8720
+
+# Hardware-UART2 mit freien Olimex-Pins
+# (GPIO35 ist perfekt als RX-Pin geeignet)
+uart:
+  id: uart_rs485
+  # Verdrahtung: RXD des Waveshare-Adapters -> GPIO4, TXD des Adapters -> GPIO35.
+  # Nur Empfang: GPIO4 gehört dem RMT-Sender (climos tx_pin), der UART kann das 9. Bit nicht.
+  # GPIO4 braucht einen 10-kΩ-Pull-up nach 3,3 V, damit der Adapter beim Booten nicht sendet.
+  rx_pin: GPIO35
+  baud_rate: 9600
+  stop_bits: 1
+
+climos:
+  id: kwl_bus
+  uart_id: uart_rs485
+  # Sender über RMT. Sendet an der laufenden KWL im Fenster 15-40 ms nach 01 FF 84 00
+  # (dort antwortet niemand, danach ~160 ms Stille), ohne Busverkehr (Testsegment) sofort.
+  # Nur wenn "Senden aktiv" an ist. Zum Abschalten des Senders diese Zeile auskommentieren.
+  # Sendetest 9. Bit: zusätzlich bit_capture_pin auf GPIO4, beide mit allow_other_uses: true
+  # (das Waveshare-Modul gibt das eigene Senden nicht auf RXD zurück).
+  tx_pin: GPIO4
+  # Ergebnis der letzten Umschaltung: vorgemerkt / gesendet (Versuch n) / bestätigt /
+  # keine Bestätigung / kein Sendefenster / gesperrt
+  send_status:
+    name: "Letztes Senden"
+  # Zuordnung abgeleitet aus Wärmerückgewinnung (~80 %) bei geschlossenem Bypass
+  temperature_81:
+    id: t_zuluft
+    name: "Temperatur Zuluft"
+  temperature_82:
+    id: t_aussenluft
+    name: "Temperatur Außenluft"
+    state_topic: kwl/sensor/temperatur_aussenluft/state
+  temperature_83:
+    id: t_abluft
+    name: "Temperatur Abluft"
+  temperature_84:
+    name: "Temperatur Fortluft"
+  # Gefahrene Stufe (in Automatik die vom Programm gewählte), wird im Flash gehalten
+  fan_stage:
+    name: "Lüfterstufe"
+    state_topic: kwl/text_sensor/luefterstufe/state
+  filter_remaining:
+    name: "Filter-Restlaufzeit"
+  filter_interval:
+    name: "Filter-Intervall"
+  operating_mode:
+    id: betriebsart
+    name: "Betriebsart"
+  operating_hours:
+    name: "Betriebsstunden insgesamt"
+  fan_operating_hours:
+    name: "Betriebsstunden Lüfter"
+    state_topic: kwl/sensor/betriebsstunden_luefter/state
+  system_on:
+    name: "Anlage an"
+  # Läuft gerade (Status 0x1A Bit 5), nicht der Haken im Bedienteil
+  summer_ventilation:
+    id: sommerlueftung
+    name: "Sommerlüftung aktiv"
+    state_topic: kwl/binary_sensor/sommerlueftung_aktiv/state
+  exhaust_fan:
+    name: "Fortluftventilator"
+  # Nur nach Anmeldung des Bedienteils am Bus bekannt
+  summer_threshold:
+    name: "Sommerlüftung Schwelle"
+    state_topic: kwl/sensor/sommerlueftung_schwelle/state
+  summer_min_outside:
+    name: "Sommerlüftung Min. Außenluft"
+    state_topic: kwl/sensor/sommerlueftung_min_aussenluft/state
+  # Diagnose: Status-Byte von Gerät 08 (Bit 3 Fortluftventilator, Bit 5 Sommerlüftung)
+  status_1a:
+    name: "Status 0x1A"
+  # Nur nach Anmeldung des Bedienteils am Bus bekannt (z.B. nach Stromausfall)
+  last_message:
+    name: "Letzte Meldung"
+  bus_version:
+    name: "BUS-Version"
+  sw_master:
+    name: "SW Master"
+  sw_slave:
+    name: "SW Slave"
+  sw_tft:
+    name: "SW Bedienteil"
+  # Diagnose: Objekt 0x44, Bedeutung unbekannt (keine Drehzahl)
+  fan_level_raw:
+    name: "Rohwert 0x44"
+  # Nur im Komplett-Abzug: Hysterese H_som und Haken "Sommerlüftung aktiv" im Bedienteil
+  summer_hysteresis:
+    name: "Sommerlüftung Hysterese"
+    state_topic: kwl/sensor/sommerlueftung_hysterese/state
+  summer_enabled:
+    name: "Sommerlüftung freigegeben"
+    state_topic: kwl/binary_sensor/sommerlueftung_freigegeben/state
+  # 0 = keine Störung
+  error_code:
+    name: "Fehlercode"
+  # Nur im Komplett-Abzug oder bei Änderung am Bedienteil
+  stage_1_percent:
+    name: "Stufe 1 Leistung"
+  stage_2_percent:
+    name: "Stufe 2 Leistung"
+  stage_3_percent:
+    name: "Stufe 3 Leistung"
+  boost_duration:
+    name: "Dauer Stoßlüftung"
+    state_topic: kwl/sensor/dauer_stosslueftung/state
+  away_interval:
+    name: "Laufzeit pro Stunde bei Abwesend"
+  debalance_stage_1:
+    name: "Disbalance Stufe 1"
+  debalance_stage_2:
+    name: "Disbalance Stufe 2"
+  debalance_stage_3:
+    name: "Disbalance Stufe 3"
+  # Reihenfolge vermutet (Anleitung: eco, sicher, Feuchte-WT)
+  frost_threshold_1:
+    name: "Frostschutz-Schwelle eco"
+  frost_threshold_2:
+    name: "Frostschutz-Schwelle sicher"
+  frost_threshold_3:
+    name: "Frostschutz-Schwelle Feuchte-WT"
+  # Wochenprogramm, nur im Komplett-Abzug oder bei Änderung am Bedienteil
+  schedule_monday:
+    name: "Wochenprogramm Montag"
+  schedule_tuesday:
+    name: "Wochenprogramm Dienstag"
+  schedule_wednesday:
+    name: "Wochenprogramm Mittwoch"
+  schedule_thursday:
+    name: "Wochenprogramm Donnerstag"
+  schedule_friday:
+    name: "Wochenprogramm Freitag"
+  schedule_saturday:
+    name: "Wochenprogramm Samstag"
+  schedule_sunday:
+    name: "Wochenprogramm Sonntag"
+
+sensor:
+  # Wärmerückgewinnung (Zuluftseite). Während der Sommerlüftung ohne Bedeutung,
+  # bei kleinem Abstand Abluft/Außenluft zu ungenau.
+  - platform: template
+    name: "Wärmerückgewinnungsgrad"
+    state_topic: kwl/sensor/waermerueckgewinnungsgrad/state
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    state_class: measurement
+    icon: mdi:heat-wave
+    update_interval: 60s
+    lambda: |-
+      const float zu = id(t_zuluft).state;
+      const float au = id(t_aussenluft).state;
+      const float ab = id(t_abluft).state;
+      if (std::isnan(zu) || std::isnan(au) || std::isnan(ab) || id(sommerlueftung).state)
+        return NAN;
+      if (ab - au < 3.0f)
+        return NAN;
+      return (zu - au) / (ab - au) * 100.0f;
+
+# Not-Aus für das Senden: standardmäßig an, Zustand bleibt über Neustarts erhalten.
+# Ausschalten stoppt jedes Senden sofort (auch vorgemerkte Frames und Wiederholungen).
+switch:
+  - platform: template
+    name: "Senden aktiv"
+    icon: mdi:send-lock
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(kwl_bus).set_write_enabled(true);
+    turn_off_action:
+      - lambda: id(kwl_bus).set_write_enabled(false);

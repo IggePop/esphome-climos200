@@ -1,0 +1,12 @@
+# Zugangsdaten
+secrets.yaml
+*.secret*
+
+# ESPHome-Build und Python
+.esphome/
+__pycache__/
+*.pyc
+
+# Mitschnitte und lokale Hilfsskripte (enthalten Adressen aus dem eigenen Netz)
+captures/
+local/

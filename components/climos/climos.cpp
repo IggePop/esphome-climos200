@@ -1,0 +1,920 @@
+#include "climos.h"
+
+#include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
+
+#include <cstdio>
+#include <cstring>
+
+namespace esphome {
+namespace climos {
+
+static const char *const TAG = "CLIMOS_BUS";
+
+static const uint8_t CMD_POLL = 0x84;
+static const uint8_t CMD_DATA = 0x85;
+static const uint8_t CMD_ACK = 0x87;
+static const uint8_t CMD_TIME = 0x00;
+static const uint8_t OBJ_UNKNOWN_55 = 0x55;
+
+// Objekt-IDs in der Payload von 0x85-Frames
+static const uint16_t OBJ_STATUS_1A = 0x001A;
+static const uint16_t OBJ_SYSTEM_ON = 0x0008;
+static const uint16_t OBJ_SUMMER_THRESHOLD = 0x0041;      // t_som, Ablufttemperatur-Schwelle
+static const uint16_t OBJ_SUMMER_MIN_OUTSIDE = 0x0049;    // minimale Außenlufttemperatur
+static const uint16_t OBJ_FAN_LEVEL_RAW = 0x0044;         // unbekannt, reagiert nicht auf die Lüfterstufe
+static const uint16_t OBJ_SUMMER_HYSTERESIS = 0x0043;     // H_som, 0.1 K
+static const uint16_t OBJ_ERROR_CODE = 0x000E;
+static const uint16_t OBJ_FEATURES = 0x001B;              // Freigaben, Bit 7 = Sommerlüftung freigegeben
+static const uint8_t FEATURE_SUMMER_VENTILATION = 0x80;
+// Einstellwerte, nur im Komplett-Abzug oder wenn sie am Bedienteil geändert werden
+static const uint16_t OBJ_FIRST_STAGE_PERCENT = 0x002E;  // Stufen 1..3 in %
+static const uint16_t OBJ_BOOST_DURATION = 0x003B;       // Minuten
+static const uint16_t OBJ_AWAY_INTERVAL = 0x003C;        // Minuten Stufe 1 pro Stunde
+static const uint16_t OBJ_FIRST_DEBALANCE = 0x0031;      // Disbalance Stufen 1..3 in %, vorzeichenbehaftet
+static const uint16_t OBJ_FIRST_FROST_THRESHOLD = 0x004A;  // Frostschutz-Schwellen, 0.1 °C, vorzeichenbehaftet
+// Wochenprogramm: 0x64..0x78, je Tag drei Register (00-08, 08-16, 16-24 Uhr) zu 8 Byte,
+// 2 Bit je Viertelstunde, erste Viertelstunde in den unteren Bits (00 aus, 01..11 Stufe 1..3)
+static const uint16_t OBJ_FIRST_SCHEDULE = 0x0064;
+static const uint8_t SCHEDULE_REGISTERS_PER_DAY = 3;
+static const size_t MAX_SCHEDULE_TEXT = 250;
+// Bits in Status 0x1A (aus Mitschnitten abgeleitet)
+static const uint8_t STATUS_EXHAUST_FAN = 0x08;
+static const uint8_t STATUS_SUMMER_VENTILATION = 0x20;
+static const uint16_t OBJ_OPERATING_TIME = 0x0026;
+static const uint16_t OBJ_FAN_STAGE = 0x0027;
+static const uint16_t OBJ_FILTER_REMAINING = 0x003E;
+static const uint16_t OBJ_FIRST_TEMPERATURE = 0x0081;
+static const uint16_t OBJ_FAN_OPERATING_TIME = 0x0085;
+static const uint16_t OBJ_BUS_VERSION = 0x0000;
+static const uint16_t OBJ_SW_MASTER = 0x0003;
+static const uint16_t OBJ_MESSAGE_CODE = 0x000A;
+static const uint16_t OBJ_MESSAGE_DATE = 0x000B;
+static const uint16_t OBJ_MESSAGE_TIME = 0x000C;
+static const uint16_t OBJ_SW_TFT = 0x000D;
+static const uint16_t OBJ_SW_SLAVE = 0x0019;
+static const uint16_t OBJ_MODE = 0x0028;  // laufende Betriebsart; 0x29 ist die Rückfall-Betriebsart nach Stoßlüftung
+static const uint16_t OBJ_FILTER_INTERVAL = 0x003D;
+static const uint8_t MESSAGE_OUTSIDE_TEMP_LOW = 0x86;
+
+// Payload = Folge aus [ID lo][ID hi][Wert]; die Wertlänge hängt von der ID ab
+// (aus dem Komplett-Abzug beim Anmelden des Bedienteils ermittelt)
+struct ObjectLength {
+  uint16_t id;
+  uint8_t length;
+};
+static const ObjectLength OBJECT_LENGTHS[] = {
+    {0x0000, 3}, {0x0001, 4}, {0x0003, 11}, {0x0005, 2}, {0x0006, 1}, {0x0007, 1}, {0x0008, 1},
+    {0x0009, 16}, {0x000A, 16}, {0x000B, 4}, {0x000C, 3}, {0x000D, 11}, {0x000E, 1}, {0x000F, 1},
+    {0x0012, 1}, {0x0015, 1}, {0x0018, 1}, {0x0019, 11}, {0x001A, 1}, {0x001B, 2}, {0x001E, 1},
+    {0x0021, 1}, {0x0024, 1}, {0x0025, 1}, {0x0026, 5}, {0x0027, 1}, {0x0028, 1}, {0x0029, 1},
+    {0x002A, 1}, {0x002B, 1}, {0x002C, 1}, {0x002D, 1}, {0x002E, 1}, {0x002F, 1}, {0x0030, 1},
+    {0x0031, 1}, {0x0032, 1}, {0x0033, 1}, {0x0034, 1}, {0x0035, 1}, {0x0036, 1}, {0x0037, 1},
+    {0x0038, 1}, {0x0039, 1}, {0x003A, 1}, {0x003B, 1}, {0x003C, 1}, {0x003D, 5}, {0x003E, 5},
+    {0x003F, 5}, {0x0040, 1}, {0x0041, 2}, {0x0042, 2}, {0x0043, 1}, {0x0044, 1}, {0x0045, 1},
+    {0x0046, 1}, {0x0047, 2}, {0x0048, 1}, {0x0049, 2}, {0x004A, 2}, {0x004B, 2}, {0x004C, 2},
+    {0x004D, 1}, {0x004E, 1}, {0x004F, 1}, {0x0050, 1}, {0x0051, 1}, {0x0052, 1}, {0x0053, 1},
+    {0x0054, 1}, {0x0055, 2}, {0x0056, 2}, {0x0057, 1}, {0x0058, 1}, {0x0059, 1}, {0x005A, 2},
+    {0x005B, 2}, {0x005C, 1}, {0x005D, 1}, {0x005E, 1}, {0x005F, 2}, {0x0060, 2}, {0x0061, 1},
+    {0x0062, 1}, {0x0063, 2}, {0x0064, 8}, {0x0065, 8}, {0x0066, 8}, {0x0067, 8}, {0x0068, 8}, {0x0069, 8},
+    {0x006A, 8}, {0x006B, 8}, {0x006C, 8}, {0x006D, 8}, {0x006E, 8}, {0x006F, 8}, {0x0070, 8},
+    {0x0071, 8}, {0x0072, 8}, {0x0073, 8}, {0x0074, 8}, {0x0075, 8}, {0x0076, 8}, {0x0077, 8},
+    {0x0078, 8}, {0x0079, 1}, {0x007A, 1}, {0x007B, 1}, {0x007C, 1}, {0x007D, 1}, {0x007E, 1},
+    {0x007F, 1}, {0x0080, 1}, {0x0081, 2}, {0x0082, 2}, {0x0083, 2}, {0x0084, 2}, {0x0085, 5},
+    {0x0086, 1}, {0x0087, 1}, {0x0088, 16}, {0x0089, 4}, {0x008A, 3}, {0x008B, 16}, {0x008C, 4},
+    {0x008D, 3}, {0x008E, 1}, {0x0091, 1}, {0x0094, 1},
+};
+// Werte, die nur im Komplett-Abzug oder bei Änderung kommen: im Flash halten und beim Start wiederherstellen.
+// Reihenfolge = Reihenfolge der Wiederherstellung (Meldung 0x0A..0x0C muss zusammenbleiben).
+static const uint16_t PERSISTED_IDS[] = {
+    0x0000, 0x0003, 0x000A, 0x000B, 0x000C, 0x000D, 0x0019, 0x001B, 0x0027, 0x0028, 0x002E, 0x002F,
+    0x0030, 0x0031, 0x0032, 0x0033, 0x003B, 0x003C, 0x003D, 0x0041, 0x0043, 0x0049, 0x004A, 0x004B,
+    0x004C, 0x0064, 0x0065, 0x0066, 0x0067, 0x0068, 0x0069, 0x006A, 0x006B, 0x006C, 0x006D, 0x006E,
+    0x006F, 0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077, 0x0078,
+};
+static_assert(sizeof(PERSISTED_IDS) / sizeof(PERSISTED_IDS[0]) == NUM_PERSISTED, "NUM_PERSISTED anpassen");
+
+// Unvollständiges Frame verwerfen, wenn so lange nichts mehr kommt
+static const uint32_t STALE_TIMEOUT_MS = 50;
+static const uint32_t STATS_INTERVAL_MS = 60000;
+// Messmodus: Ringpuffer (Zweierpotenz), Ausgabe alle 30 s, Ende nach etwa 5 Minuten Busverkehr
+static const uint32_t EDGE_BUFFER_SIZE = 4096;
+static const uint32_t BIT_CAPTURE_LOG_INTERVAL_MS = 30000;
+static const uint32_t BIT_CAPTURE_MAX_FRAMES = 6000;
+
+// Senden am Bus nur im Fenster nach 01 FF 84 00: dort antwortet niemand, danach 158-163 ms Stille
+// (gemessen 2026-10-31). Gesendet wird 15..40 ms nach dem Einlesen des Polls, wenn seitdem kein Byte
+// kam. Ein Frame dauert etwa 10 ms, ist also spätestens rund 90 ms nach dem Poll fertig.
+static const uint8_t ADDR_BROADCAST = 0xFF;
+static const uint32_t SEND_WINDOW_MIN_MS = 15;
+static const uint32_t SEND_WINDOW_MAX_MS = 40;
+// Vorgemerktes Frame verfällt, wenn kein Fenster kam (Fenster etwa alle 9 s)
+static const uint32_t SEND_PENDING_TIMEOUT_MS = 30000;
+// Testsegment ohne KWL: sofort senden, wenn der Bus so lange still war. Am echten Bus kommt
+// etwa alle 1,5 ms ein Frame, dort greift dieser Weg also nie.
+static const uint32_t SEND_BUS_SILENCE_MS = 2000;
+static const uint32_t SEND_MIN_INTERVAL_MS = 1000;
+// Nach dem Senden so lange Frames mit 0x28/0x29 und Frames mit erstem Byte 00 loggen
+static const uint32_t SEND_WATCH_MS = 10000;
+static const uint16_t OBJ_MODE_FALLBACK = 0x0029;
+// Bestätigung: so lange auf 0x29 von 08 bzw. 0x28 vom Bedienteil warten, dann wiederholen
+static const uint32_t SEND_CONFIRM_MS = 3000;
+static const uint8_t SEND_MAX_ATTEMPTS = 3;
+static const uint8_t ADDR_PANEL = 0x04;
+static const uint8_t ADDR_FAN_UNIT = 0x08;
+// 9. Bit auf den ersten zwei Bytes jedes Frames (gemessen am 2026-10-31)
+static const uint8_t SEND_MARKED_BYTES = 2;
+static const uint8_t FRAME_START = 0x01;
+static const uint8_t ADDR_REGISTERS = 0x00;
+static const uint8_t MODE_MIN = 1;
+static const uint8_t MODE_MAX = 6;
+
+void IRAM_ATTR EdgeStore::gpio_intr(EdgeStore *store) {
+  const uint32_t time = micros();
+  const bool level = store->pin.digital_read();
+  const uint32_t next = (store->head + 1) & (EDGE_BUFFER_SIZE - 1);
+  if (next == store->tail) {
+    store->overflows = store->overflows + 1;
+    return;
+  }
+  store->edges[store->head] = (time & ~1u) | (level ? 1u : 0u);
+  store->head = next;
+}
+
+void Climos::setup_bit_capture_() {
+  if (bit_capture_pin_ == nullptr)
+    return;
+  edge_store_.edges = new uint32_t[EDGE_BUFFER_SIZE];
+  edge_store_.pin = bit_capture_pin_->to_isr();
+  // Kein pin->setup(): der Pin gehört dem UART und bleibt so eingestellt, wie der ihn konfiguriert hat
+  bit_capture_pin_->attach_interrupt(EdgeStore::gpio_intr, &edge_store_, gpio::INTERRUPT_ANY_EDGE);
+  bit_capture_active_ = true;
+  last_bit_capture_log_ = millis();
+  ESP_LOGI(TAG, "Messmodus 9. Bit gestartet");
+}
+
+void Climos::loop_bit_capture_() {
+  if (!bit_capture_active_)
+    return;
+
+  // Zeit vor dem Leeren lesen: alle Pegelwechsel bis zu diesem Zeitpunkt sind dann im Dekoder
+  const uint32_t now = micros();
+  uint32_t tail = edge_store_.tail;
+  const uint32_t head = edge_store_.head;
+  while (tail != head) {
+    const uint32_t edge = edge_store_.edges[tail];
+    bit_decoder_.add_edge(edge & ~1u, edge & 1u);
+    tail = (tail + 1) & (EDGE_BUFFER_SIZE - 1);
+  }
+  edge_store_.tail = tail;
+  bit_decoder_.process(now);
+
+  const bool finished = bit_decoder_.frames_ok() >= BIT_CAPTURE_MAX_FRAMES;
+  if (finished || millis() - last_bit_capture_log_ > BIT_CAPTURE_LOG_INTERVAL_MS) {
+    last_bit_capture_log_ = millis();
+    log_bit_capture_();
+  }
+  if (finished) {
+    bit_capture_pin_->detach_interrupt();
+    bit_capture_active_ = false;
+    ESP_LOGI(TAG, "Messmodus 9. Bit beendet");
+  }
+}
+
+void Climos::log_bit_capture_() {
+  const auto &d = bit_decoder_;
+  ESP_LOGI(TAG, "9. Bit: %u Frames OK, %u CRC-Fehler, %u Stoppbit-Fehler, %u Pufferüberläufe",
+           static_cast<unsigned int>(d.frames_ok()), static_cast<unsigned int>(d.crc_errors()),
+           static_cast<unsigned int>(d.stop_errors()), static_cast<unsigned int>(edge_store_.overflows));
+  ESP_LOGI(TAG, "9. Bit: erstes Byte %u gesetzt / %u nicht, restliche Bytes %u gesetzt / %u nicht",
+           static_cast<unsigned int>(d.first_marked()), static_cast<unsigned int>(d.first_unmarked()),
+           static_cast<unsigned int>(d.other_marked()), static_cast<unsigned int>(d.other_unmarked()));
+  const auto log_gap = [](const char *name, const BitDecoder::Stat &stat) {
+    if (stat.count == 0)
+      return;
+    ESP_LOGI(TAG, "Abstand %s: min %d, mittel %d, max %d µs (%u)", name, static_cast<int>(stat.min),
+             static_cast<int>(stat.sum / stat.count), static_cast<int>(stat.max), static_cast<unsigned int>(stat.count));
+  };
+  log_gap("nach Poll", d.gap_after_poll());
+  log_gap("nach 0x86", d.gap_after_confirm());
+  log_gap("nach Broadcast-Poll", d.gap_after_broadcast());
+  log_gap("nach sonstigem Frame", d.gap_other());
+  log_gap("zwischen Bytes im Frame", d.gap_inside_frame());
+  for (const auto &entry : d.patterns()) {
+    ESP_LOGI(TAG, "%s: %u mal, z.B. %s", entry.first.c_str(), static_cast<unsigned int>(entry.second.count),
+             entry.second.example.c_str());
+  }
+}
+
+void Climos::setup() {
+  // Zuerst, damit der Sendepin so früh wie möglich fest auf High liegt
+  if (tx_pin_ >= 0) {
+    if (sender_.setup(tx_pin_)) {
+      ESP_LOGI(TAG, "Sender bereit auf GPIO%d, Ruhepegel High, Schreiben gesperrt", tx_pin_);
+    } else {
+      ESP_LOGE(TAG, "Sender auf GPIO%d nicht verfügbar", tx_pin_);
+    }
+  }
+  setup_bit_capture_();
+  rx_buffer_.reserve(256);
+  last_byte_time_ = millis();
+  last_stats_time_ = millis();
+
+  size_t offset = 0;
+  for (uint8_t i = 0; i < NUM_PERSISTED; i++) {
+    settings_offsets_[i] = offset;
+    offset += object_length_(PERSISTED_IDS[i]);
+  }
+  if (offset > SETTINGS_STORE_SIZE) {
+    ESP_LOGE(TAG, "Speicher für Einstellwerte zu klein (%u > %u)", static_cast<unsigned int>(offset),
+             static_cast<unsigned int>(SETTINGS_STORE_SIZE));
+    persistence_ok_ = false;
+    return;
+  }
+
+  // Schlüssel hängt von der Tabelle ab, damit ein geändertes Layout nicht falsch gelesen wird
+  const uint32_t hash = fnv1_hash("climos_settings") ^ (offset << 16) ^ NUM_PERSISTED;
+  settings_pref_ = global_preferences->make_preference<SettingsStore>(hash);
+  if (!settings_pref_.load(&settings_)) {
+    settings_ = SettingsStore{};
+    ESP_LOGI(TAG, "Keine gespeicherten Einstellwerte");
+    return;
+  }
+  uint8_t restored = 0;
+  for (uint8_t i = 0; i < NUM_PERSISTED; i++) {
+    if (settings_.valid & (1ull << i)) {
+      handle_object_(PERSISTED_IDS[i], settings_.data + settings_offsets_[i], object_length_(PERSISTED_IDS[i]));
+      restored++;
+    }
+  }
+  ESP_LOGI(TAG, "%u gespeicherte Einstellwerte wiederhergestellt", restored);
+}
+
+uint8_t Climos::object_length_(uint16_t id) {
+  for (const auto &entry : OBJECT_LENGTHS) {
+    if (entry.id == id)
+      return entry.length;
+  }
+  return 0;
+}
+
+void Climos::remember_setting_(uint16_t id, const uint8_t *value, uint8_t length) {
+  if (!persistence_ok_)
+    return;
+  for (uint8_t i = 0; i < NUM_PERSISTED; i++) {
+    if (PERSISTED_IDS[i] != id)
+      continue;
+    uint8_t *stored = settings_.data + settings_offsets_[i];
+    const uint64_t bit = 1ull << i;
+    if ((settings_.valid & bit) && std::memcmp(stored, value, length) == 0)
+      return;
+    std::memcpy(stored, value, length);
+    settings_.valid |= bit;
+    settings_dirty_ = true;
+    return;
+  }
+}
+
+void Climos::dump_config() {
+  ESP_LOGCONFIG(TAG, "Climos Bus-Sniffer");
+  LOG_PIN("  Messmodus 9. Bit: ", bit_capture_pin_);
+  if (tx_pin_ >= 0) {
+    ESP_LOGCONFIG(TAG, "  Sender: GPIO%d, %s, Schreiben %s", tx_pin_, sender_.is_ready() ? "bereit" : "FEHLER",
+                  write_enabled_ ? "erlaubt" : "gesperrt");
+  } else {
+    ESP_LOGCONFIG(TAG, "  Sender: nicht konfiguriert");
+  }
+  for (uint8_t i = 0; i < NUM_TEMPERATURES; i++) {
+    LOG_SENSOR("  ", "Temperatur", temperature_sensors_[i]);
+  }
+  LOG_TEXT_SENSOR("  ", "Lüfterstufe", fan_stage_text_sensor_);
+  LOG_SENSOR("  ", "Filter-Restlaufzeit", filter_remaining_sensor_);
+  LOG_SENSOR("  ", "Betriebsstunden", operating_hours_sensor_);
+  LOG_SENSOR("  ", "Betriebsstunden Lüfter", fan_operating_hours_sensor_);
+  LOG_SENSOR("  ", "Status 0x1A", status_1a_sensor_);
+  LOG_SENSOR("  ", "Filterintervall", filter_interval_sensor_);
+  LOG_TEXT_SENSOR("  ", "Betriebsart", operating_mode_text_sensor_);
+  LOG_TEXT_SENSOR("  ", "Letzte Meldung", last_message_text_sensor_);
+  LOG_TEXT_SENSOR("  ", "BUS-Version", bus_version_text_sensor_);
+  LOG_TEXT_SENSOR("  ", "SW Master", sw_master_text_sensor_);
+  LOG_TEXT_SENSOR("  ", "SW Slave", sw_slave_text_sensor_);
+  LOG_TEXT_SENSOR("  ", "SW Bedienteil", sw_tft_text_sensor_);
+  LOG_BINARY_SENSOR("  ", "Anlage an", system_on_binary_sensor_);
+  LOG_BINARY_SENSOR("  ", "Sommerlüftung aktiv", summer_ventilation_binary_sensor_);
+  LOG_BINARY_SENSOR("  ", "Fortluftventilator", exhaust_fan_binary_sensor_);
+  LOG_SENSOR("  ", "Schwelle Sommerlüftung", summer_threshold_sensor_);
+  LOG_SENSOR("  ", "Min. Außenluft Sommerlüftung", summer_min_outside_sensor_);
+  LOG_SENSOR("  ", "Rohwert 0x44", fan_level_raw_sensor_);
+  LOG_SENSOR("  ", "Hysterese Sommerlüftung", summer_hysteresis_sensor_);
+  LOG_SENSOR("  ", "Fehlercode", error_code_sensor_);
+  for (uint8_t i = 0; i < NUM_FAN_STAGES; i++) {
+    LOG_SENSOR("  ", "Stufe in %", stage_percent_sensors_[i]);
+  }
+  LOG_SENSOR("  ", "Dauer Stoßlüftung", boost_duration_sensor_);
+  LOG_SENSOR("  ", "Laufzeit Abwesend", away_interval_sensor_);
+  for (uint8_t i = 0; i < NUM_FAN_STAGES; i++) {
+    LOG_SENSOR("  ", "Disbalance", debalance_sensors_[i]);
+  }
+  for (uint8_t i = 0; i < NUM_FROST_THRESHOLDS; i++) {
+    LOG_SENSOR("  ", "Frostschutz-Schwelle", frost_threshold_sensors_[i]);
+  }
+  LOG_BINARY_SENSOR("  ", "Sommerlüftung freigegeben", summer_enabled_binary_sensor_);
+}
+
+void Climos::loop() {
+  loop_bit_capture_();
+
+  while (available()) {
+    rx_buffer_.push_back(read());
+    rx_bytes_++;
+    last_byte_time_ = millis();
+  }
+
+  while (try_parse_frame_()) {
+  }
+
+  loop_send_();
+
+  // Rest eines kaputten oder abgeschnittenen Frames: ein Byte weiter neu synchronisieren
+  if (!rx_buffer_.empty() && millis() - last_byte_time_ > STALE_TIMEOUT_MS) {
+    rx_buffer_.erase(rx_buffer_.begin());
+    while (try_parse_frame_()) {
+    }
+    if (millis() - last_byte_time_ > STALE_TIMEOUT_MS * 4) {
+      dump_frame_("Verworfen", rx_buffer_.data(), rx_buffer_.size());
+      rx_buffer_.clear();
+    }
+  }
+
+  if (millis() - last_stats_time_ > STATS_INTERVAL_MS) {
+    last_stats_time_ = millis();
+    ESP_LOGI(TAG, "Statistik: %u Frames OK, %u verworfene Bytes (CRC/Resync)", static_cast<unsigned int>(frames_ok_),
+             static_cast<unsigned int>(crc_errors_));
+  }
+}
+
+// Versucht am Pufferanfang ein Frame zu lesen. true = Puffer hat sich verändert, nochmal versuchen.
+bool Climos::try_parse_frame_() {
+  if (rx_buffer_.size() < HEADER_SIZE)
+    return false;
+
+  const size_t frame_size = HEADER_SIZE + (rx_buffer_[3] & 0x7F);
+  if (rx_buffer_.size() < frame_size)
+    return false;
+
+  const uint8_t *data = rx_buffer_.data();
+  uint16_t crc = crc16_xmodem_(data, 4);
+  crc = crc16_xmodem_(data + HEADER_SIZE, frame_size - HEADER_SIZE, crc);
+  const uint16_t expected = data[4] | (data[5] << 8);
+
+  if (crc != expected) {
+    // Kein gültiges Frame an dieser Stelle: ein Byte verwerfen und neu ansetzen
+    crc_errors_++;
+    rx_buffer_.erase(rx_buffer_.begin());
+    return true;
+  }
+
+  frames_ok_++;
+  handle_frame_(data, frame_size);
+  rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + frame_size);
+  return true;
+}
+
+void Climos::handle_frame_(const uint8_t *frame, size_t size) {
+  const uint8_t dst = frame[1];
+  const uint8_t cmd = frame[2];
+  const uint8_t *payload = frame + HEADER_SIZE;
+  const size_t payload_size = size - HEADER_SIZE;
+
+  dump_frame_("Frame", frame, size);
+
+  if (cmd == CMD_POLL) {
+    last_polled_ = dst;
+    if (dst == ADDR_BROADCAST && payload_size == 0) {
+      // Bytes, die im Puffer schon hinter diesem Frame stehen, zählen als "nach dem Poll"
+      ff_poll_seen_ = true;
+      ff_poll_time_ = millis();
+      ff_poll_rx_bytes_ = rx_bytes_ - (rx_buffer_.size() - size);
+    }
+  }
+
+  if (watching_ && static_cast<int32_t>(millis() - watch_until_) > 0) {
+    watching_ = false;
+    ESP_LOGI(TAG, "Beobachtung nach dem Senden beendet");
+  }
+  watch_hit_ = false;
+
+  if (cmd == CMD_DATA) {
+    parse_records_(payload, payload_size);
+    // Ein Komplett-Abzug ändert viele Werte auf einmal: einmal pro Frame speichern
+    if (settings_dirty_) {
+      settings_pref_.save(&settings_);
+      settings_dirty_ = false;
+      ESP_LOGD(TAG, "Einstellwerte gespeichert");
+    }
+  }
+
+  // Reaktion auf das eigene Frame: Betriebsart-Objekte und Frames mit erstem Byte 00 (ohne Uhrzeit)
+  if (watching_ && (watch_hit_ || (frame[0] == 0x00 && cmd != CMD_TIME))) {
+    std::string hex = to_hex_(frame, size);
+    if (hex != last_watch_log_) {
+      ESP_LOGI(TAG, "Nach Senden +%u ms (nach Poll %02X): %s", static_cast<unsigned int>(millis() - last_send_time_),
+               last_polled_, hex.c_str());
+      last_watch_log_ = std::move(hex);
+    }
+  }
+
+  // Uhrzeit (alle 5 s) und Bestätigungen enthalten nichts Neues: nur auf DEBUG
+  if (cmd == CMD_TIME || cmd == CMD_ACK) {
+    ESP_LOGD(TAG, "%s", to_hex_(frame, size).c_str());
+    return;
+  }
+
+  // Objekt 0x0055 (Stellwert 0-10-V-Eingang, 0.1 %) am Payload-Ende rauscht: beim Vergleich ignorieren
+  size_t compare_size = payload_size;
+  if (payload_size >= 4 && payload[payload_size - 4] == OBJ_UNKNOWN_55 && payload[payload_size - 3] == 0x00) {
+    ESP_LOGD(TAG, "Objekt 0x55: %u", payload[payload_size - 2]);
+    compare_size -= 4;
+  }
+
+  // Nur Änderungen auf INFO loggen. Schlüssel: Kopf ohne CRC und die ersten beiden Payload-Bytes (Objekt-ID).
+  char key[24];
+  std::snprintf(key, sizeof(key), "%02X%02X%02X%02X:%02X%02X", frame[0], frame[1], frame[2], frame[3],
+                payload_size > 0 ? payload[0] : 0, payload_size > 1 ? payload[1] : 0);
+  std::vector<uint8_t> current(payload, payload + compare_size);
+  auto it = last_payloads_.find(key);
+  if (it == last_payloads_.end() || it->second != current) {
+    ESP_LOGI(TAG, "%s (nach Poll %02X): %s", it == last_payloads_.end() ? "Neu" : "Geändert", last_polled_,
+             to_hex_(frame, size).c_str());
+    last_payloads_[key] = std::move(current);
+  } else {
+    ESP_LOGD(TAG, "%s", to_hex_(frame, size).c_str());
+  }
+}
+
+void Climos::parse_records_(const uint8_t *payload, size_t size) {
+  size_t pos = 0;
+  while (pos + 2 <= size) {
+    const uint16_t id = payload[pos] | (payload[pos + 1] << 8);
+    const uint8_t length = object_length_(id);
+    if (length == 0 || pos + 2 + length > size) {
+      // Unbekanntes Objekt: Länge unbekannt, Rest der Payload nicht auswertbar
+      ESP_LOGD(TAG, "Unbekanntes Objekt 0x%04X an Position %u", id, static_cast<unsigned int>(pos));
+      return;
+    }
+    remember_setting_(id, payload + pos + 2, length);
+    handle_object_(id, payload + pos + 2, length);
+    pos += 2 + length;
+  }
+}
+
+void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
+  if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK) {
+    watch_hit_ = true;
+    // Bestätigung der gesendeten Betriebsart (auch für eine bereits vorgemerkte Wiederholung)
+    const uint8_t expected = confirm_mode_ != 0 ? confirm_mode_ : (confirm_attempt_ > 0 ? pending_mode_ : 0);
+    const bool from_fan = id == OBJ_MODE_FALLBACK && last_polled_ == ADDR_FAN_UNIT;
+    const bool from_panel = id == OBJ_MODE && last_polled_ == ADDR_PANEL;
+    if (expected != 0 && value[0] == expected && (from_fan || from_panel)) {
+      ESP_LOGI(TAG, "Bestätigt durch %s nach %u ms", from_fan ? "Lüftergerät (0x29)" : "Bedienteil (0x28)",
+               static_cast<unsigned int>(millis() - last_send_time_));
+      if (pending_size_ > 0 && pending_mode_ == expected)
+        clear_pending_();
+      confirm_mode_ = 0;
+      confirm_attempt_ = 0;
+      pending_mode_ = 0;
+      publish_send_status_(("bestätigt: " + mode_to_string_(expected)).c_str());
+    }
+  }
+  if (id >= OBJ_FIRST_SCHEDULE && id < OBJ_FIRST_SCHEDULE + NUM_WEEKDAYS * SCHEDULE_REGISTERS_PER_DAY) {
+    const uint8_t index = id - OBJ_FIRST_SCHEDULE;
+    std::memcpy(schedule_[index], value, SCHEDULE_REGISTER_SIZE);
+    schedule_received_ |= 1u << index;
+    publish_schedule_day_(index / SCHEDULE_REGISTERS_PER_DAY);
+    return;
+  }
+  if (id >= OBJ_FIRST_DEBALANCE && id < OBJ_FIRST_DEBALANCE + NUM_FAN_STAGES) {
+    publish_if_changed_(debalance_sensors_[id - OBJ_FIRST_DEBALANCE], static_cast<int8_t>(value[0]));
+    return;
+  }
+  if (id >= OBJ_FIRST_FROST_THRESHOLD && id < OBJ_FIRST_FROST_THRESHOLD + NUM_FROST_THRESHOLDS) {
+    const int16_t raw = static_cast<int16_t>(value[0] | (value[1] << 8));
+    publish_if_changed_(frost_threshold_sensors_[id - OBJ_FIRST_FROST_THRESHOLD], raw / 10.0f);
+    return;
+  }
+  if (id >= OBJ_FIRST_STAGE_PERCENT && id < OBJ_FIRST_STAGE_PERCENT + NUM_FAN_STAGES) {
+    publish_if_changed_(stage_percent_sensors_[id - OBJ_FIRST_STAGE_PERCENT], value[0]);
+    return;
+  }
+  if (id >= OBJ_FIRST_TEMPERATURE && id < OBJ_FIRST_TEMPERATURE + NUM_TEMPERATURES) {
+    const int16_t raw = static_cast<int16_t>(value[0] | (value[1] << 8));
+    publish_if_changed_(temperature_sensors_[id - OBJ_FIRST_TEMPERATURE], raw / 10.0f);
+    return;
+  }
+
+  switch (id) {
+    case OBJ_FAN_STAGE:
+      ESP_LOGI(TAG, "Lüfterstufe: %u", value[0]);
+      // Gleiche Codes wie die Betriebsart; in Automatik steht hier die gefahrene Stufe
+      publish_if_changed_(fan_stage_text_sensor_, mode_to_string_(value[0]));
+      break;
+    case OBJ_STATUS_1A:
+      publish_if_changed_(status_1a_sensor_, value[0]);
+      publish_if_changed_(summer_ventilation_binary_sensor_, value[0] & STATUS_SUMMER_VENTILATION);
+      publish_if_changed_(exhaust_fan_binary_sensor_, value[0] & STATUS_EXHAUST_FAN);
+      break;
+    case OBJ_SYSTEM_ON:
+      publish_if_changed_(system_on_binary_sensor_, value[0] != 0);
+      break;
+    case OBJ_SUMMER_THRESHOLD:
+      publish_if_changed_(summer_threshold_sensor_, static_cast<int16_t>(value[0] | (value[1] << 8)) / 10.0f);
+      break;
+    case OBJ_SUMMER_MIN_OUTSIDE:
+      publish_if_changed_(summer_min_outside_sensor_, static_cast<int16_t>(value[0] | (value[1] << 8)) / 10.0f);
+      break;
+    case OBJ_FAN_LEVEL_RAW:
+      publish_if_changed_(fan_level_raw_sensor_, value[0]);
+      break;
+    case OBJ_SUMMER_HYSTERESIS:
+      publish_if_changed_(summer_hysteresis_sensor_, value[0] / 10.0f);
+      break;
+    case OBJ_BOOST_DURATION:
+      publish_if_changed_(boost_duration_sensor_, value[0]);
+      break;
+    case OBJ_AWAY_INTERVAL:
+      publish_if_changed_(away_interval_sensor_, value[0]);
+      break;
+    case OBJ_ERROR_CODE:
+      publish_if_changed_(error_code_sensor_, value[0]);
+      break;
+    case OBJ_FEATURES:
+      publish_if_changed_(summer_enabled_binary_sensor_, value[0] & FEATURE_SUMMER_VENTILATION);
+      break;
+    case OBJ_OPERATING_TIME:
+      publish_if_changed_(operating_hours_sensor_, duration_to_minutes_(value) / 60);
+      break;
+    case OBJ_FAN_OPERATING_TIME:
+      publish_if_changed_(fan_operating_hours_sensor_, duration_to_minutes_(value) / 60);
+      break;
+    case OBJ_FILTER_REMAINING:
+      publish_if_changed_(filter_remaining_sensor_, duration_to_minutes_(value) / (24 * 60));
+      break;
+    case OBJ_FILTER_INTERVAL:
+      publish_if_changed_(filter_interval_sensor_, duration_to_minutes_(value) / (24 * 60));
+      break;
+    case OBJ_MODE:
+      current_mode_ = value[0];
+      publish_if_changed_(operating_mode_text_sensor_, mode_to_string_(value[0]));
+      break;
+    case OBJ_BUS_VERSION: {
+      char buf[16];
+      std::snprintf(buf, sizeof(buf), "%u.%u.%u", value[0], value[1], value[2]);
+      publish_if_changed_(bus_version_text_sensor_, buf);
+      break;
+    }
+    case OBJ_SW_MASTER:
+      publish_if_changed_(sw_master_text_sensor_, std::string(reinterpret_cast<const char *>(value), length));
+      break;
+    case OBJ_SW_SLAVE:
+      publish_if_changed_(sw_slave_text_sensor_, std::string(reinterpret_cast<const char *>(value), length));
+      break;
+    case OBJ_SW_TFT:
+      publish_if_changed_(sw_tft_text_sensor_, std::string(reinterpret_cast<const char *>(value), length));
+      break;
+    // Meldung 1 kommt als Code, Datum, Uhrzeit hintereinander im selben Frame
+    case OBJ_MESSAGE_CODE:
+      message_code_ = value[0];
+      break;
+    case OBJ_MESSAGE_DATE:
+      std::memcpy(message_date_, value, sizeof(message_date_));
+      break;
+    case OBJ_MESSAGE_TIME: {
+      // Datum: [Wochentag][Tag][Monat][Jahr], Uhrzeit: [?][Minute][Stunde]
+      const char *text = message_code_ == MESSAGE_OUTSIDE_TEMP_LOW ? "Außentemperatur zu niedrig" : nullptr;
+      char buf[80];
+      if (text != nullptr) {
+        std::snprintf(buf, sizeof(buf), "%02u.%02u.%02u %02u:%02u %s", message_date_[1], message_date_[2],
+                      message_date_[3], value[2], value[1], text);
+      } else {
+        std::snprintf(buf, sizeof(buf), "%02u.%02u.%02u %02u:%02u Code 0x%02X", message_date_[1], message_date_[2],
+                      message_date_[3], value[2], value[1], message_code_);
+      }
+      publish_if_changed_(last_message_text_sensor_, buf);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+// Tag als Liste der Umschaltpunkte, z.B. "00:00 Stufe 1, 07:00 Stufe 2, 19:30 Stufe 1"
+void Climos::publish_schedule_day_(uint8_t day) {
+  const uint32_t day_mask = 0b111u << (day * SCHEDULE_REGISTERS_PER_DAY);
+  if (schedule_text_sensors_[day] == nullptr || (schedule_received_ & day_mask) != day_mask)
+    return;
+
+  std::string text;
+  int last_level = -1;
+  for (uint8_t slot = 0; slot < 96; slot++) {
+    const uint8_t byte = schedule_[day * SCHEDULE_REGISTERS_PER_DAY + slot / 32][(slot % 32) / 4];
+    const int level = (byte >> ((slot % 4) * 2)) & 0x03;
+    if (level == last_level)
+      continue;
+    last_level = level;
+    char buf[24];
+    if (level == 0) {
+      std::snprintf(buf, sizeof(buf), "%s%02u:%02u aus", text.empty() ? "" : ", ", slot / 4, (slot % 4) * 15);
+    } else {
+      std::snprintf(buf, sizeof(buf), "%s%02u:%02u Stufe %d", text.empty() ? "" : ", ", slot / 4, (slot % 4) * 15,
+                    level);
+    }
+    if (text.size() + std::strlen(buf) > MAX_SCHEDULE_TEXT) {
+      text += " …";
+      break;
+    }
+    text += buf;
+  }
+  publish_if_changed_(schedule_text_sensors_[day], text);
+}
+
+// Zeitdauer im 5-Byte-Format: [Minuten][Stunden][Tage lo][Tage hi][Jahre], Jahr = 365 Tage
+uint32_t Climos::duration_to_minutes_(const uint8_t *value) {
+  const uint32_t days = (value[2] | (value[3] << 8)) + value[4] * 365u;
+  return value[0] + value[1] * 60u + days * 24u * 60u;
+}
+
+std::string Climos::mode_to_string_(uint8_t mode) {
+  switch (mode) {
+    case 1:
+      return "Stufe 1";
+    case 2:
+      return "Stufe 2";
+    case 3:
+      return "Stufe 3";
+    case 4:
+      return "Stoßlüftung";
+    case 5:
+      return "Abwesend";
+    case 6:
+      return "Automatik";
+    default: {
+      char buf[16];
+      std::snprintf(buf, sizeof(buf), "Code %u", mode);
+      return buf;
+    }
+  }
+}
+
+void Climos::publish_if_changed_(binary_sensor::BinarySensor *sens, bool value) {
+  if (sens != nullptr && (!sens->has_state() || sens->state != value)) {
+    sens->publish_state(value);
+  }
+}
+
+void Climos::publish_if_changed_(text_sensor::TextSensor *sens, const std::string &value) {
+  if (sens != nullptr && (!sens->has_state() || sens->state != value)) {
+    sens->publish_state(value);
+  }
+}
+
+void Climos::publish_if_changed_(sensor::Sensor *sens, float value) {
+  if (sens != nullptr && (!sens->has_state() || sens->state != value)) {
+    sens->publish_state(value);
+  }
+}
+
+void Climos::dump_frame_(const char *prefix, const uint8_t *data, size_t size) {
+  if (size == 0)
+    return;
+  ESP_LOGV(TAG, "%s (%u Bytes): %s", prefix, static_cast<unsigned int>(size), to_hex_(data, size).c_str());
+}
+
+std::string Climos::to_hex_(const uint8_t *data, size_t size) {
+  std::string hex;
+  char buf[4];
+  for (size_t i = 0; i < size; i++) {
+    std::snprintf(buf, sizeof(buf), "%02X ", data[i]);
+    hex += buf;
+  }
+  return hex;
+}
+
+void Climos::set_write_enabled(bool enabled) {
+  if (enabled == write_enabled_)
+    return;
+  write_enabled_ = enabled;
+  ESP_LOGW(TAG, "Senden %s", enabled ? "aktiv" : "GESPERRT");
+}
+
+bool Climos::send_operating_mode(uint8_t mode) {
+  if (mode < MODE_MIN || mode > MODE_MAX) {
+    ESP_LOGW(TAG, "Betriebsart %u ungültig, erlaubt sind %u..%u", mode, MODE_MIN, MODE_MAX);
+    return false;
+  }
+  const std::string name = mode_to_string_(mode);
+  if (!write_enabled_) {
+    ESP_LOGW(TAG, "Nicht vorgemerkt: Senden gesperrt");
+    publish_send_status_(("gesperrt: " + name).c_str());
+    return false;
+  }
+  // Neue Auswahl ersetzt eine noch laufende (wartende oder unbestätigte)
+  confirm_mode_ = 0;
+  confirm_attempt_ = 0;
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_MODE & 0xFF), static_cast<uint8_t>(OBJ_MODE >> 8), mode};
+  if (!queue_frame_(FRAME_START, ADDR_REGISTERS, CMD_DATA, payload, sizeof(payload))) {
+    publish_send_status_(("Fehler: " + name).c_str());
+    return false;
+  }
+  pending_mode_ = mode;
+  publish_send_status_(("vorgemerkt: " + name).c_str());
+  return true;
+}
+
+bool Climos::send_current_operating_mode() {
+  if (current_mode_ == 0) {
+    ESP_LOGW(TAG, "Betriebsart noch unbekannt, nichts gesendet");
+    return false;
+  }
+  return send_operating_mode(current_mode_);
+}
+
+void Climos::publish_send_status_(const char *what) {
+  ESP_LOGI(TAG, "Letztes Senden: %s", what);
+  if (send_status_text_sensor_ != nullptr)
+    send_status_text_sensor_->publish_state(what);
+}
+
+bool Climos::queue_frame_(uint8_t first, uint8_t dst, uint8_t cmd, const uint8_t *payload, uint8_t payload_size) {
+  if (!sender_.is_ready()) {
+    ESP_LOGW(TAG, "Nicht vorgemerkt: kein Sender (tx_pin fehlt oder RMT-Fehler)");
+    return false;
+  }
+  if (!write_enabled_) {
+    ESP_LOGW(TAG, "Nicht vorgemerkt: Senden gesperrt");
+    return false;
+  }
+  if (payload_size > 0x7F) {
+    ESP_LOGW(TAG, "Nicht vorgemerkt: Nutzdaten zu lang (%u)", payload_size);
+    return false;
+  }
+  if (pending_size_ > 0)
+    ESP_LOGI(TAG, "Wartendes Frame wird ersetzt: %s", to_hex_(pending_frame_, pending_size_).c_str());
+
+  pending_frame_[0] = first;
+  pending_frame_[1] = dst;
+  pending_frame_[2] = cmd;
+  pending_frame_[3] = payload_size;
+  std::memcpy(pending_frame_ + HEADER_SIZE, payload, payload_size);
+  uint16_t crc = crc16_xmodem_(pending_frame_, 4);
+  crc = crc16_xmodem_(pending_frame_ + HEADER_SIZE, payload_size, crc);
+  pending_frame_[4] = crc & 0xFF;
+  pending_frame_[5] = crc >> 8;
+  pending_size_ = HEADER_SIZE + payload_size;
+  pending_since_ = millis();
+  pending_mode_ = 0;
+  // Ein altes Fenster gilt nicht: erst den nächsten Poll an FF abwarten
+  ff_poll_seen_ = false;
+  high_freq_.start();
+  ESP_LOGI(TAG, "Vorgemerkt, warte auf Sendefenster: %s", to_hex_(pending_frame_, pending_size_).c_str());
+  return true;
+}
+
+void Climos::clear_pending_() {
+  pending_size_ = 0;
+  high_freq_.stop();
+}
+
+void Climos::loop_confirm_(uint32_t now) {
+  if (confirm_mode_ == 0 || static_cast<int32_t>(now - confirm_deadline_) < 0)
+    return;
+  const uint8_t mode = confirm_mode_;
+  confirm_mode_ = 0;
+  if (confirm_attempt_ >= SEND_MAX_ATTEMPTS) {
+    ESP_LOGW(TAG, "Keine Bestätigung nach %u Versuchen", static_cast<unsigned int>(confirm_attempt_));
+    confirm_attempt_ = 0;
+    publish_send_status_(("keine Bestätigung: " + mode_to_string_(mode)).c_str());
+    return;
+  }
+  if (!write_enabled_) {
+    confirm_attempt_ = 0;
+    publish_send_status_(("gesperrt: " + mode_to_string_(mode)).c_str());
+    return;
+  }
+  // Wiederholen: dasselbe Frame im nächsten Fenster
+  ESP_LOGW(TAG, "Keine Bestätigung innerhalb %u ms, wiederhole", static_cast<unsigned int>(SEND_CONFIRM_MS));
+  std::memcpy(pending_frame_, sent_frame_, sent_size_);
+  pending_size_ = sent_size_;
+  pending_since_ = now;
+  pending_mode_ = mode;
+  ff_poll_seen_ = false;
+  high_freq_.start();
+}
+
+void Climos::loop_send_() {
+  const uint32_t now = millis();
+  loop_confirm_(now);
+  if (pending_size_ == 0)
+    return;
+
+  if (!write_enabled_) {
+    ESP_LOGW(TAG, "Vorgemerktes Frame verworfen: Senden wurde gesperrt");
+    if (pending_mode_ != 0)
+      publish_send_status_(("gesperrt: " + mode_to_string_(pending_mode_)).c_str());
+    pending_mode_ = 0;
+    confirm_attempt_ = 0;
+    clear_pending_();
+    return;
+  }
+  if (now - pending_since_ > SEND_PENDING_TIMEOUT_MS) {
+    ESP_LOGW(TAG, "Vorgemerktes Frame verworfen: in %u s kein Sendefenster",
+             static_cast<unsigned int>(SEND_PENDING_TIMEOUT_MS / 1000));
+    if (pending_mode_ != 0)
+      publish_send_status_(("kein Sendefenster: " + mode_to_string_(pending_mode_)).c_str());
+    pending_mode_ = 0;
+    confirm_attempt_ = 0;
+    clear_pending_();
+    return;
+  }
+  // Höchstens ein Frame pro Sekunde
+  if (has_sent_ && now - last_send_time_ < SEND_MIN_INTERVAL_MS)
+    return;
+
+  // Testsegment: kein Busverkehr, also auch kein Fenster. Sofort senden.
+  if (now - last_byte_time_ >= SEND_BUS_SILENCE_MS) {
+    transmit_pending_("Testsegment, Bus still", now);
+    return;
+  }
+
+  if (!ff_poll_seen_)
+    return;
+  // Seit dem Poll an FF darf kein Byte gekommen sein, auch keins, das noch im UART liegt
+  if (rx_bytes_ != ff_poll_rx_bytes_ || !rx_buffer_.empty() || available()) {
+    ff_poll_seen_ = false;
+    return;
+  }
+  const uint32_t since_poll = now - ff_poll_time_;
+  if (since_poll < SEND_WINDOW_MIN_MS)
+    return;
+  if (since_poll > SEND_WINDOW_MAX_MS) {
+    // Zu spät gesehen (Hauptschleife war blockiert): nächstes Fenster abwarten
+    ESP_LOGD(TAG, "Sendefenster verpasst (%u ms nach Poll)", static_cast<unsigned int>(since_poll));
+    ff_poll_seen_ = false;
+    return;
+  }
+  char how[40];
+  std::snprintf(how, sizeof(how), "Fenster nach FF, +%u ms", static_cast<unsigned int>(since_poll));
+  transmit_pending_(how, now);
+  ff_poll_seen_ = false;
+}
+
+bool Climos::transmit_pending_(const char *how, uint32_t now) {
+  if (sender_.is_busy())
+    return false;
+  if (!sender_.send(pending_frame_, pending_size_, SEND_MARKED_BYTES)) {
+    ESP_LOGW(TAG, "Nicht gesendet: RMT hat abgelehnt");
+    if (pending_mode_ != 0)
+      publish_send_status_(("Fehler: " + mode_to_string_(pending_mode_)).c_str());
+    pending_mode_ = 0;
+    confirm_attempt_ = 0;
+    clear_pending_();
+    return false;
+  }
+  has_sent_ = true;
+  last_send_time_ = now;
+  watching_ = true;
+  watch_until_ = now + SEND_WATCH_MS;
+  last_watch_log_.clear();
+  std::memcpy(sent_frame_, pending_frame_, pending_size_);
+  sent_size_ = pending_size_;
+  // Log erst nach dem Start, das Frame läuft in Hardware weiter
+  ESP_LOGI(TAG, "Gesendet (%s, %u RMT-Symbole, %u µs): %s", how,
+           static_cast<unsigned int>(sender_.last_symbol_count()),
+           static_cast<unsigned int>(BusEncoder::frame_duration_us(pending_size_)),
+           to_hex_(pending_frame_, pending_size_).c_str());
+  if (pending_mode_ != 0) {
+    confirm_mode_ = pending_mode_;
+    confirm_attempt_++;
+    confirm_deadline_ = now + SEND_CONFIRM_MS;
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "gesendet: %s (Versuch %u)", mode_to_string_(confirm_mode_).c_str(),
+                  static_cast<unsigned int>(confirm_attempt_));
+    publish_send_status_(buf);
+  }
+  pending_mode_ = 0;
+  clear_pending_();
+  return true;
+}
+
+uint16_t Climos::crc16_xmodem_(const uint8_t *data, size_t size, uint16_t crc) {
+  for (size_t i = 0; i < size; i++) {
+    crc ^= static_cast<uint16_t>(data[i]) << 8;
+    for (uint8_t bit = 0; bit < 8; bit++) {
+      crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+    }
+  }
+  return crc;
+}
+
+}  // namespace climos
+}  // namespace esphome
