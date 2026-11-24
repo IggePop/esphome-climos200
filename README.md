@@ -16,15 +16,23 @@ letzte Meldung, Softwarestände sowie die Einstellwerte aus dem Bedienteil (Stuf
 Disbalance, Stoßlüftungsdauer, Frostschutz-Schwellen, Wochenprogramm). Werte, die nur beim
 Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerückgewinnungsgrad.
 
-**Schreiben:** Betriebsart (Stufe 1–3, Stoßlüftung, Abwesend, Automatik) über ein `select`.
+**Schreiben:**
+
+- **Betriebsart** (Stufe 1–3, Stoßlüftung, Abwesend, Automatik) über ein `select`. Erfolg gilt erst,
+  wenn das Lüftergerät (`29 00 xx`) oder das Bedienteil (`28 00 xx`) den neuen Wert meldet.
+- **t_som** (Schwelle der Sommerlüftung) über eine `number`. Einstellwerte meldet kein Gerät zurück,
+  auch nicht bei Änderung am Bedienteil. Erfolg gilt daher, wenn das Lüftergerät den Empfang quittiert
+  (`86`/`87`, dieselbe Bestätigung, die das Bedienteil bekommt). Erst dann übernimmt der Sensor den Wert.
+
+Für beides gilt:
 
 - Gesendet wird nur im Fenster nach dem Broadcast-Poll `01 FF 84 00`, in dem kein anderes Gerät spricht.
-- Erfolg gilt erst, wenn das Lüftergerät (`29 00 xx`) oder das Bedienteil (`28 00 xx`) den neuen Wert
-  meldet. Sonst bis zu zwei Wiederholungen. Ergebnis im Sensor „Letztes Senden“.
+- Ohne Bestätigung bis zu zwei Wiederholungen. Ergebnis im Sensor „Letztes Senden“.
 - Schalter „Senden aktiv“ als Not-Aus.
 - Eine Anmeldung als Bedienteil ist nicht nötig.
 
-Geplant: Einstellwerte (t_som, Stufen-Leistung, …) und Wochenprogramm, siehe [docs/fahrplan.md](docs/fahrplan.md).
+Geplant: weitere Einstellwerte (Stufen-Leistung, Stoßlüftungsdauer, …) und Wochenprogramm, siehe
+[docs/fahrplan.md](docs/fahrplan.md).
 
 ## Hardware
 

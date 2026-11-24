@@ -60,6 +60,9 @@ class Climos : public Component, public uart::UARTDevice {
   bool send_operating_mode(uint8_t mode);
   // Die zuletzt gesehene (bzw. gespeicherte) Betriebsart senden, ändert also nichts
   bool send_current_operating_mode();
+  // t_som (Ablufttemperatur-Schwelle der Sommerlüftung) setzen wie das Bedienteil:
+  // 01 00 85 08 [CRC] 1B 00 [0x1B aktuell] 41 00 [Wert in 0,1 °C]. Braucht den aktuellen Wert von 0x1B.
+  bool send_summer_threshold(float celsius);
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -122,6 +125,17 @@ class Climos : public Component, public uart::UARTDevice {
   void clear_pending_();
   void loop_confirm_(uint32_t now);
   void publish_send_status_(const char *what);
+  // Wie wird ein gesendetes Frame bestätigt?
+  // MODE: Gerät meldet die Betriebsart (0x29 von 08 oder 0x28 vom Bedienteil) -> "bestätigt"
+  // ACK:  Lüftergerät quittiert unser Frame (87 mit unserer CRC nach 86 an 08) -> "angenommen",
+  //       die gesendeten Werte werden übernommen. Quittung nur vom Bedienteil zählt nicht.
+  enum ConfirmKind : uint8_t { CONFIRM_NONE, CONFIRM_MODE, CONFIRM_ACK };
+  bool queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label);
+  void confirm_success_(ConfirmKind kind, const char *how);
+  // Wartet eine Wiederholung dieses Typs (Bestätigung kam nach Ablauf der Frist)?
+  bool retry_pending_(ConfirmKind kind) const {
+    return confirm_attempt_ > 0 && pending_size_ > 0 && pending_kind_ == kind;
+  }
 
  private:
   int tx_pin_{-1};
@@ -145,11 +159,22 @@ class Climos : public Component, public uart::UARTDevice {
   bool watching_{false};
   bool watch_hit_{false};
   std::string last_watch_log_;
-  // Bestätigung einer gesendeten Betriebsart: 0x29 von 08 oder 0x28 vom Bedienteil mit diesem Code
+  // Bestätigung des gesendeten Frames (siehe ConfirmKind)
   text_sensor::TextSensor *send_status_text_sensor_{nullptr};
-  uint8_t pending_mode_{0};    // Betriebsart des vorgemerkten Frames (0 = keine)
-  uint8_t confirm_mode_{0};    // Betriebsart, auf deren Bestätigung gewartet wird (0 = keine)
+  ConfirmKind pending_kind_{CONFIRM_NONE};  // vorgemerktes Frame
+  uint8_t pending_mode_{0};                 // Betriebsart (nur CONFIRM_MODE)
+  std::string pending_label_;               // z.B. "Stufe 2" oder "t_som 24.5 °C"
+  ConfirmKind confirm_kind_{CONFIRM_NONE};  // gesendet, wartet auf Bestätigung
+  uint8_t confirm_mode_{0};
+  std::string confirm_label_;
   uint8_t confirm_attempt_{0};
+  // An wen ging das letzte 86 (Bestätigung anfordern)? Die folgende 87 kommt von diesem Gerät.
+  uint8_t last_ack_request_dst_{0};
+  // Einstellwert wurde in diesem Durchlauf nur vom Bedienteil quittiert (zählt nicht als Bestätigung)
+  bool acked_by_panel_only_{false};
+  // Aktueller Wert von 0x1B (Freigaben), muss beim Senden von t_som mitgeschickt werden
+  uint8_t features_raw_[2]{};
+  bool has_features_{false};
   uint32_t confirm_deadline_{0};
   uint8_t sent_frame_[HEADER_SIZE + 0x7F]{};
   size_t sent_size_{0};

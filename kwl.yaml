@@ -65,6 +65,29 @@ select:
             }
           }
 
+# Einstellwerte (Phase 3, in Erprobung). Zeigen den Wert vom Bus, senden nur bei Eingabe.
+# Ergebnis in "Letztes Senden": "angenommen" = Master hat das Frame quittiert (87 mit unserer CRC).
+# Ob Bedienteil/Lüftergerät den Wert übernehmen, zeigt erst die Anzeige am Bedienteil.
+number:
+  - platform: template
+    name: "Sommerlüftung Schwelle setzen"
+    state_topic: kwl/number/sommerlueftung_schwelle_setzen/state
+    command_topic: kwl/number/sommerlueftung_schwelle_setzen/command
+    icon: mdi:thermometer-chevron-up
+    unit_of_measurement: "°C"
+    min_value: 18
+    max_value: 30
+    step: 0.5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(t_som).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_summer_threshold(x);
+
 # Für Home Assistant einkommentieren (hier wird ESPHome ohne Home Assistant über MQTT betrieben).
 #api:
 #  encryption:
@@ -124,7 +147,7 @@ climos:
   # (das Waveshare-Modul gibt das eigene Senden nicht auf RXD zurück).
   tx_pin: GPIO4
   # Ergebnis der letzten Umschaltung: vorgemerkt / gesendet (Versuch n) / bestätigt /
-  # keine Bestätigung / kein Sendefenster / gesperrt
+  # angenommen / keine Bestätigung / kein Sendefenster / gesperrt
   send_status:
     name: "Letztes Senden"
   # Zuordnung abgeleitet aus Wärmerückgewinnung (~80 %) bei geschlossenem Bypass
@@ -165,8 +188,9 @@ climos:
     state_topic: kwl/binary_sensor/sommerlueftung_aktiv/state
   exhaust_fan:
     name: "Fortluftventilator"
-  # Nur nach Anmeldung des Bedienteils am Bus bekannt
+  # t_som. Nur nach Anmeldung des Bedienteils am Bus bekannt (im Flash gehalten)
   summer_threshold:
+    id: t_som
     name: "Sommerlüftung Schwelle"
     state_topic: kwl/sensor/sommerlueftung_schwelle/state
   summer_min_outside:

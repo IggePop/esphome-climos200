@@ -208,8 +208,44 @@ machen zu müssen.
 
 ## Phase 3: Einstellwerte und Wochenprogramm
 
+- [x] t_som setzen (2026-11-24): `number` „Sommerlüftung Schwelle setzen“ (18–30 °C, Schritt 0,5), Frame wie
+      vom Bedienteil `01 00 85 08 [CRC] 1B 00 <0x1B aktuell> 41 00 <Wert>` (Aufbau gegen Mitschnitt geprüft)
+      - Test 25,0 °C: im Fenster gesendet, Master fordert Bestätigung **vom Bedienteil** an (`01 04 86 00`),
+        Quittung `87` mit unserer CRC nach 36 ms. **Bedienteil zeigt danach 25,0 °C** (vom User geprüft)
+      - **Kein Echo:** danach kein Frame mit 0x41, 0x1B oder 0x62 (74 s beobachtet). Abschluss `62 00 00` war
+        nicht nötig
+      - Rückmeldung daher nur „angenommen“ (Quittung). Sensoren zeigen bewusst nur Werte, die ein Gerät gemeldet
+        hat: der neue Wert erscheint erst nach dem nächsten Komplett-Abzug
+      - **86/87 ist eine Zustellquittung:** Der Master fragt den Empfänger (86 an 04 oder 08), der antwortet mit
+        der CRC des empfangenen Frames (87). Auch das Bedienteil bekommt für seine eigenen Änderungen nur das
+        (Lüftergerät quittiert), kein Wert-Echo. Eigene Master-Frames (Objekt 0x09) lässt er von beiden quittieren
+      - Daher (Variante 2, 2026-11-24): Einstellwert gilt als angenommen, wenn das **Lüftergerät** quittiert, dann
+        übernimmt der ESP den Wert in Sensor und Flash. Nur Bedienteil-Quittung -> Wiederholung (max. 3)
+      - Test: 25,0 °C erst im 3. Versuch von 08 quittiert (Versuch 1+2 nur 04), 24,5 °C im 1. Versuch (04, dann 08).
+        Sensor folgt jeweils. Für eigene Frames fragt der Master mal nur 04, mal 04 und 08, Regel unklar
+      - Offen: Nutzt das Lüftergerät den neuen Wert (Sommerlüftung schaltet an der neuen Schwelle)?
+        Gibt es einen Weg, den Wert vom Bus zurückzulesen (Komplett-Abzug anfordern)?
+
 - [ ] Nacheinander umsetzen, was Phase 0 gezeigt hat, jeweils mit Rücklesen
 - [ ] Wochenprogramm zuletzt: pro Sendefenster ein Frame, Rolle von 0x62 und erneutem `28` klären
+
+## Test: Braucht der Bus das 9. Bit? (offen)
+
+Frage: Prüfen die Geräte beim Empfang das 9. Bit (gesetzt auf Byte 0 und 1) und dulden sie eine Lücke im
+Frame? Falls nicht, könnten auch USB- oder Ethernet-RS485-Adapter mit 8S1/8M1 senden (Timing im Fenster
+nach `FF` reicht dafür, etwa 130 ms Spielraum). Wichtig für Nachbauten ohne ESP.
+
+- [ ] Komponente: Anzahl der Bytes mit 9. Bit für Testframes einstellbar machen (heute fest 2)
+- [ ] Harmloses Frame senden (laufende Betriebsart, ändert nichts), jeweils mehrmals:
+  - [ ] 9. Bit nur auf Byte 0
+  - [ ] ohne 9. Bit
+  - [ ] 9. Bit auf allen Bytes
+- [ ] Kriterium: Master quittiert (86/87 mit unserer CRC) und Lüftergerät meldet 29 wie gewohnt, Bus bleibt
+      fehlerfrei (Debug-Empfänger und ESP-Statistik)
+- [ ] Optional: Lücke nach Byte 1 (einige ms, wie bei Paritätswechsel per tcsetattr) und prüfen, ob das Frame
+      noch angenommen wird
+- Risiko gering: Frames werden im Fenster gesendet. Wird ein Frame verworfen, passiert nichts. Im schlimmsten
+  Fall stört ein falsch erkanntes Frame kurz den Bus, dann "Senden aktiv" aus.
 
 ## Phase 4: ESP als zweites Bedienteil (optional)
 

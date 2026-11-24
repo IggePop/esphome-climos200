@@ -4,6 +4,7 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -14,6 +15,7 @@ static const char *const TAG = "CLIMOS_BUS";
 
 static const uint8_t CMD_POLL = 0x84;
 static const uint8_t CMD_DATA = 0x85;
+static const uint8_t CMD_CONFIRM_REQUEST = 0x86;
 static const uint8_t CMD_ACK = 0x87;
 static const uint8_t CMD_TIME = 0x00;
 static const uint8_t OBJ_UNKNOWN_55 = 0x55;
@@ -123,6 +125,11 @@ static const uint32_t SEND_CONFIRM_MS = 3000;
 static const uint8_t SEND_MAX_ATTEMPTS = 3;
 static const uint8_t ADDR_PANEL = 0x04;
 static const uint8_t ADDR_FAN_UNIT = 0x08;
+// t_som: Grenzen zur Sicherheit (am Bedienteil gesehen: 24,5 °C, Schritt 0,5 K vermutet)
+static const float SUMMER_THRESHOLD_MIN = 18.0f;
+static const float SUMMER_THRESHOLD_MAX = 30.0f;
+// Abschluss-Frame des Bedienteils 15 s nach einer t_som-Änderung (62 00 00), Rolle unklar
+static const uint16_t OBJ_SETTINGS_DONE = 0x0062;
 // 9. Bit auf den ersten zwei Bytes jedes Frames (gemessen am 2026-10-31)
 static const uint8_t SEND_MARKED_BYTES = 2;
 static const uint8_t FRAME_START = 0x01;
@@ -425,6 +432,26 @@ void Climos::handle_frame_(const uint8_t *frame, size_t size) {
     }
   }
 
+  // Zustellquittung: Master fragt ein Gerät mit 86, das antwortet mit 87 [00][CRC lo][CRC hi]
+  // des empfangenen Frames. Für unser Frame zählt nur die Quittung des Lüftergeräts.
+  if (cmd == CMD_CONFIRM_REQUEST)
+    last_ack_request_dst_ = dst;
+  if (cmd == CMD_ACK && payload_size >= 3 && sent_size_ > 0 && payload[1] == sent_frame_[4] &&
+      payload[2] == sent_frame_[5]) {
+    const uint8_t from = last_ack_request_dst_;
+    if (watching_)
+      ESP_LOGI(TAG, "Nach Senden +%u ms: Quittung von %02X für unser Frame (%s)",
+               static_cast<unsigned int>(millis() - last_send_time_), from, to_hex_(frame, size).c_str());
+    if (confirm_kind_ == CONFIRM_ACK || retry_pending_(CONFIRM_ACK)) {
+      if (from == ADDR_FAN_UNIT) {
+        confirm_success_(CONFIRM_ACK, "Quittung des Lüftergeräts (87)");
+      } else {
+        acked_by_panel_only_ = true;
+        ESP_LOGW(TAG, "Nur von %02X quittiert, nicht vom Lüftergerät: wird wiederholt", from);
+      }
+    }
+  }
+
   // Uhrzeit (alle 5 s) und Bestätigungen enthalten nichts Neues: nur auf DEBUG
   if (cmd == CMD_TIME || cmd == CMD_ACK) {
     ESP_LOGD(TAG, "%s", to_hex_(frame, size).c_str());
@@ -470,22 +497,18 @@ void Climos::parse_records_(const uint8_t *payload, size_t size) {
 }
 
 void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
-  if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK) {
+  // Beim Senden beobachten: Betriebsart, Freigaben, t_som und Abschluss-Objekt
+  if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK || id == OBJ_FEATURES || id == OBJ_SUMMER_THRESHOLD ||
+      id == OBJ_SETTINGS_DONE)
     watch_hit_ = true;
+  if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK) {
     // Bestätigung der gesendeten Betriebsart (auch für eine bereits vorgemerkte Wiederholung)
-    const uint8_t expected = confirm_mode_ != 0 ? confirm_mode_ : (confirm_attempt_ > 0 ? pending_mode_ : 0);
+    const uint8_t expected =
+        confirm_kind_ == CONFIRM_MODE ? confirm_mode_ : (retry_pending_(CONFIRM_MODE) ? pending_mode_ : 0);
     const bool from_fan = id == OBJ_MODE_FALLBACK && last_polled_ == ADDR_FAN_UNIT;
     const bool from_panel = id == OBJ_MODE && last_polled_ == ADDR_PANEL;
-    if (expected != 0 && value[0] == expected && (from_fan || from_panel)) {
-      ESP_LOGI(TAG, "Bestätigt durch %s nach %u ms", from_fan ? "Lüftergerät (0x29)" : "Bedienteil (0x28)",
-               static_cast<unsigned int>(millis() - last_send_time_));
-      if (pending_size_ > 0 && pending_mode_ == expected)
-        clear_pending_();
-      confirm_mode_ = 0;
-      confirm_attempt_ = 0;
-      pending_mode_ = 0;
-      publish_send_status_(("bestätigt: " + mode_to_string_(expected)).c_str());
-    }
+    if (expected != 0 && value[0] == expected && (from_fan || from_panel))
+      confirm_success_(CONFIRM_MODE, from_fan ? "Lüftergerät (0x29)" : "Bedienteil (0x28)");
   }
   if (id >= OBJ_FIRST_SCHEDULE && id < OBJ_FIRST_SCHEDULE + NUM_WEEKDAYS * SCHEDULE_REGISTERS_PER_DAY) {
     const uint8_t index = id - OBJ_FIRST_SCHEDULE;
@@ -549,6 +572,9 @@ void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
       publish_if_changed_(error_code_sensor_, value[0]);
       break;
     case OBJ_FEATURES:
+      features_raw_[0] = value[0];
+      features_raw_[1] = value[1];
+      has_features_ = true;
       publish_if_changed_(summer_enabled_binary_sensor_, value[0] & FEATURE_SUMMER_VENTILATION);
       break;
     case OBJ_OPERATING_TIME:
@@ -712,23 +738,8 @@ bool Climos::send_operating_mode(uint8_t mode) {
     ESP_LOGW(TAG, "Betriebsart %u ungültig, erlaubt sind %u..%u", mode, MODE_MIN, MODE_MAX);
     return false;
   }
-  const std::string name = mode_to_string_(mode);
-  if (!write_enabled_) {
-    ESP_LOGW(TAG, "Nicht vorgemerkt: Senden gesperrt");
-    publish_send_status_(("gesperrt: " + name).c_str());
-    return false;
-  }
-  // Neue Auswahl ersetzt eine noch laufende (wartende oder unbestätigte)
-  confirm_mode_ = 0;
-  confirm_attempt_ = 0;
   const uint8_t payload[] = {static_cast<uint8_t>(OBJ_MODE & 0xFF), static_cast<uint8_t>(OBJ_MODE >> 8), mode};
-  if (!queue_frame_(FRAME_START, ADDR_REGISTERS, CMD_DATA, payload, sizeof(payload))) {
-    publish_send_status_(("Fehler: " + name).c_str());
-    return false;
-  }
-  pending_mode_ = mode;
-  publish_send_status_(("vorgemerkt: " + name).c_str());
-  return true;
+  return queue_request_(payload, sizeof(payload), CONFIRM_MODE, mode, mode_to_string_(mode));
 }
 
 bool Climos::send_current_operating_mode() {
@@ -737,6 +748,80 @@ bool Climos::send_current_operating_mode() {
     return false;
   }
   return send_operating_mode(current_mode_);
+}
+
+bool Climos::send_summer_threshold(float celsius) {
+  if (std::isnan(celsius) || celsius < SUMMER_THRESHOLD_MIN || celsius > SUMMER_THRESHOLD_MAX) {
+    ESP_LOGW(TAG, "t_som %.1f °C ungültig, erlaubt sind %.1f..%.1f °C", celsius, SUMMER_THRESHOLD_MIN,
+             SUMMER_THRESHOLD_MAX);
+    return false;
+  }
+  char label[32];
+  std::snprintf(label, sizeof(label), "t_som %.1f °C", celsius);
+  if (!has_features_) {
+    // Das Bedienteil schickt 0x1B immer mit; ohne den aktuellen Wert könnten wir Freigaben verstellen
+    ESP_LOGW(TAG, "t_som nicht gesendet: Wert von 0x1B unbekannt (kommt erst mit dem Komplett-Abzug)");
+    publish_send_status_((std::string("nicht möglich (0x1B unbekannt): ") + label).c_str());
+    return false;
+  }
+  const int16_t raw = static_cast<int16_t>(std::lround(celsius * 10.0f));
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_FEATURES & 0xFF),
+                             static_cast<uint8_t>(OBJ_FEATURES >> 8),
+                             features_raw_[0],
+                             features_raw_[1],
+                             static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD & 0xFF),
+                             static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD >> 8),
+                             static_cast<uint8_t>(raw & 0xFF),
+                             static_cast<uint8_t>((raw >> 8) & 0xFF)};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
+                            const std::string &label) {
+  if (!write_enabled_) {
+    ESP_LOGW(TAG, "Nicht vorgemerkt: Senden gesperrt");
+    publish_send_status_(("gesperrt: " + label).c_str());
+    return false;
+  }
+  // Neue Anforderung ersetzt eine noch laufende (wartende oder unbestätigte)
+  confirm_kind_ = CONFIRM_NONE;
+  confirm_attempt_ = 0;
+  acked_by_panel_only_ = false;
+  if (!queue_frame_(FRAME_START, ADDR_REGISTERS, CMD_DATA, payload, size)) {
+    publish_send_status_(("Fehler: " + label).c_str());
+    return false;
+  }
+  pending_kind_ = kind;
+  pending_mode_ = mode;
+  pending_label_ = label;
+  publish_send_status_(("vorgemerkt: " + label).c_str());
+  return true;
+}
+
+void Climos::confirm_success_(ConfirmKind kind, const char *how) {
+  // Bestätigung kann für das gesendete Frame kommen oder für eines, dessen Wiederholung schon wartet
+  const std::string label = confirm_kind_ == kind ? confirm_label_ : pending_label_;
+  ESP_LOGI(TAG, "Bestätigt durch %s nach %u ms", how, static_cast<unsigned int>(millis() - last_send_time_));
+  if (retry_pending_(kind))
+    clear_pending_();
+  if (pending_size_ == 0) {
+    pending_kind_ = CONFIRM_NONE;
+    pending_mode_ = 0;
+  }
+  confirm_kind_ = CONFIRM_NONE;
+  confirm_mode_ = 0;
+  confirm_attempt_ = 0;
+  acked_by_panel_only_ = false;
+  if (kind == CONFIRM_ACK && sent_size_ > HEADER_SIZE) {
+    // Einstellwerte meldet kein Gerät zurück, auch nicht bei Änderung am Bedienteil: Dort bestätigt
+    // ebenfalls nur das Lüftergerät den Empfang (86/87). Gleiche Bestätigung -> Werte übernehmen.
+    parse_records_(sent_frame_ + HEADER_SIZE, sent_size_ - HEADER_SIZE);
+    if (settings_dirty_) {
+      settings_pref_.save(&settings_);
+      settings_dirty_ = false;
+    }
+  }
+  publish_send_status_(((kind == CONFIRM_MODE ? "bestätigt: " : "angenommen (Lüftergerät): ") + label).c_str());
 }
 
 void Climos::publish_send_status_(const char *what) {
@@ -772,6 +857,7 @@ bool Climos::queue_frame_(uint8_t first, uint8_t dst, uint8_t cmd, const uint8_t
   pending_frame_[5] = crc >> 8;
   pending_size_ = HEADER_SIZE + payload_size;
   pending_since_ = millis();
+  pending_kind_ = CONFIRM_NONE;
   pending_mode_ = 0;
   // Ein altes Fenster gilt nicht: erst den nächsten Poll an FF abwarten
   ff_poll_seen_ = false;
@@ -786,19 +872,23 @@ void Climos::clear_pending_() {
 }
 
 void Climos::loop_confirm_(uint32_t now) {
-  if (confirm_mode_ == 0 || static_cast<int32_t>(now - confirm_deadline_) < 0)
+  if (confirm_kind_ == CONFIRM_NONE || static_cast<int32_t>(now - confirm_deadline_) < 0)
     return;
+  const ConfirmKind kind = confirm_kind_;
   const uint8_t mode = confirm_mode_;
-  confirm_mode_ = 0;
+  const std::string label = confirm_label_;
+  confirm_kind_ = CONFIRM_NONE;
   if (confirm_attempt_ >= SEND_MAX_ATTEMPTS) {
     ESP_LOGW(TAG, "Keine Bestätigung nach %u Versuchen", static_cast<unsigned int>(confirm_attempt_));
     confirm_attempt_ = 0;
-    publish_send_status_(("keine Bestätigung: " + mode_to_string_(mode)).c_str());
+    publish_send_status_(((acked_by_panel_only_ ? "nur vom Bedienteil quittiert: " : "keine Bestätigung: ") + label)
+                             .c_str());
+    acked_by_panel_only_ = false;
     return;
   }
   if (!write_enabled_) {
     confirm_attempt_ = 0;
-    publish_send_status_(("gesperrt: " + mode_to_string_(mode)).c_str());
+    publish_send_status_(("gesperrt: " + label).c_str());
     return;
   }
   // Wiederholen: dasselbe Frame im nächsten Fenster
@@ -806,7 +896,9 @@ void Climos::loop_confirm_(uint32_t now) {
   std::memcpy(pending_frame_, sent_frame_, sent_size_);
   pending_size_ = sent_size_;
   pending_since_ = now;
+  pending_kind_ = kind;
   pending_mode_ = mode;
+  pending_label_ = label;
   ff_poll_seen_ = false;
   high_freq_.start();
 }
@@ -819,9 +911,9 @@ void Climos::loop_send_() {
 
   if (!write_enabled_) {
     ESP_LOGW(TAG, "Vorgemerktes Frame verworfen: Senden wurde gesperrt");
-    if (pending_mode_ != 0)
-      publish_send_status_(("gesperrt: " + mode_to_string_(pending_mode_)).c_str());
-    pending_mode_ = 0;
+    if (pending_kind_ != CONFIRM_NONE)
+      publish_send_status_(("gesperrt: " + pending_label_).c_str());
+    pending_kind_ = CONFIRM_NONE;
     confirm_attempt_ = 0;
     clear_pending_();
     return;
@@ -829,9 +921,9 @@ void Climos::loop_send_() {
   if (now - pending_since_ > SEND_PENDING_TIMEOUT_MS) {
     ESP_LOGW(TAG, "Vorgemerktes Frame verworfen: in %u s kein Sendefenster",
              static_cast<unsigned int>(SEND_PENDING_TIMEOUT_MS / 1000));
-    if (pending_mode_ != 0)
-      publish_send_status_(("kein Sendefenster: " + mode_to_string_(pending_mode_)).c_str());
-    pending_mode_ = 0;
+    if (pending_kind_ != CONFIRM_NONE)
+      publish_send_status_(("kein Sendefenster: " + pending_label_).c_str());
+    pending_kind_ = CONFIRM_NONE;
     confirm_attempt_ = 0;
     clear_pending_();
     return;
@@ -873,9 +965,9 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
     return false;
   if (!sender_.send(pending_frame_, pending_size_, SEND_MARKED_BYTES)) {
     ESP_LOGW(TAG, "Nicht gesendet: RMT hat abgelehnt");
-    if (pending_mode_ != 0)
-      publish_send_status_(("Fehler: " + mode_to_string_(pending_mode_)).c_str());
-    pending_mode_ = 0;
+    if (pending_kind_ != CONFIRM_NONE)
+      publish_send_status_(("Fehler: " + pending_label_).c_str());
+    pending_kind_ = CONFIRM_NONE;
     confirm_attempt_ = 0;
     clear_pending_();
     return false;
@@ -892,15 +984,18 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
            static_cast<unsigned int>(sender_.last_symbol_count()),
            static_cast<unsigned int>(BusEncoder::frame_duration_us(pending_size_)),
            to_hex_(pending_frame_, pending_size_).c_str());
-  if (pending_mode_ != 0) {
+  if (pending_kind_ != CONFIRM_NONE) {
+    confirm_kind_ = pending_kind_;
     confirm_mode_ = pending_mode_;
+    confirm_label_ = pending_label_;
     confirm_attempt_++;
     confirm_deadline_ = now + SEND_CONFIRM_MS;
-    char buf[48];
-    std::snprintf(buf, sizeof(buf), "gesendet: %s (Versuch %u)", mode_to_string_(confirm_mode_).c_str(),
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "gesendet: %s (Versuch %u)", confirm_label_.c_str(),
                   static_cast<unsigned int>(confirm_attempt_));
     publish_send_status_(buf);
   }
+  pending_kind_ = CONFIRM_NONE;
   pending_mode_ = 0;
   clear_pending_();
   return true;

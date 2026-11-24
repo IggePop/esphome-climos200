@@ -61,6 +61,29 @@ Geräteblöcke: Adresse a hat ab Register `0x0D + 3·(a−4)` drei Register
 - Ein fremdes Daten-Frame im Fenster wird angenommen wie eines vom Bedienteil: Der Master fordert
   sofort eine Bestätigung an (`01 04 86 00` bzw. `01 08 86 00`), die Antwort `01 01 87 83 … 00 <CRC>`
   enthält die CRC des gesendeten Frames. **Eine Anmeldung ist dafür nicht nötig.**
+
+### Zustellquittung (86/87)
+
+`86` und `87` bestätigen nur den **Empfang** eines Frames, nicht die Übernahme eines Werts. Der Master
+fragt den Empfänger, der antwortet mit der CRC des empfangenen Frames:
+
+```
+01 04 84 00                    Master pollt das Bedienteil
+01 00 85 03 1F 2D 28 00 02     Bedienteil: Betriebsart = 2
+01 08 86 00                    Master fragt das Lüftergerät
+01 01 87 83 .. .. 00 1F 2D     Lüftergerät: Frame mit CRC 1F 2D empfangen
+01 08 84 00                    Master pollt das Lüftergerät
+01 00 85 03 2F 1A 29 00 02     Lüftergerät: 0x29 = 2
+01 04 86 00                    Master fragt das Bedienteil
+01 01 87 83 .. .. 00 2F 1A     Bedienteil: CRC 2F 1A empfangen
+```
+
+- Frames des Bedienteils quittiert das Lüftergerät und umgekehrt.
+- Eigene Frames des Masters (z. B. Objekt `0x09`) lässt er von beiden quittieren.
+- Bei Frames im Fenster nach `FF` fragt der Master mal nur das Bedienteil, mal Bedienteil und
+  Lüftergerät nacheinander. Eine Regel ist noch nicht erkennbar.
+- Einstellwerte wie t_som meldet danach kein Gerät zurück, auch nicht, wenn sie am Bedienteil
+  geändert wurden.
 - Anmeldung im laufenden Betrieb (beim Wiedereinstecken des Bedienteils gesehen):
   `01 04 86 00` → `01 01 80 00` → `01 04 80 05 …` → `01 01 81 12 … ETA0036E31E` → `01 04 81 00`
   → `01 01 83 00` (fordert den Komplett-Abzug an).
@@ -81,6 +104,18 @@ Reaktion nach dem Senden im Fenster (gemessen):
 - ~150 ms: Lüftergerät meldet `27 00 <Stufe>` (gefahrene Lüfterstufe) und, außer bei Stoßlüftung,
   `29 00 <Code>`. **0x29 ist die Rückfall-Betriebsart nach der Stoßlüftung**, bei Stoßlüftung bleibt sie.
 - ~1 s: Das Bedienteil sendet die neue Betriebsart selbst (`28 00 <Code>`) und zeigt sie an.
+
+## t_som (Objekt 0x41)
+
+Frame wie vom Bedienteil, `0x1B` (Freigaben) wird immer mit dem aktuellen Wert mitgesendet:
+
+```
+01 00 85 08 95 4C 1B 00 F3 00 41 00 F5 00      t_som = 0x00F5 = 24,5 °C
+```
+
+- Im Fenster gesendet, übernimmt das Bedienteil den Wert und zeigt ihn an.
+- Der Abschluss-Frame `62 00 00`, den das Bedienteil 15 s nach einer eigenen Änderung schickt, war nicht nötig.
+- Ob das Lüftergerät die neue Schwelle nutzt, ist noch offen. Das zeigt sich erst im Sommerbetrieb.
 
 ## Wichtige Objekte
 
