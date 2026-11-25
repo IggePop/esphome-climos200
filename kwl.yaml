@@ -166,8 +166,6 @@ climos:
   # Nur wenn "Senden aktiv" an ist. Zum Abschalten des Senders diese Zeile auskommentieren.
   # Sendetest 9. Bit: zusätzlich bit_capture_pin auf GPIO4, beide mit allow_other_uses: true
   # (das Waveshare-Modul gibt das eigene Senden nicht auf RXD zurück).
-  # Test, ob die Geräte das 9. Bit prüfen: Knopf mit id(kwl_bus).send_marking_test(0|1|2),
-  # Ergebnis siehe docs/protokoll.md (sie prüfen es).
   tx_pin: GPIO4
   # Ergebnis der letzten Umschaltung: vorgemerkt / gesendet (Versuch n) / bestätigt /
   # angenommen (Lüftergerät) / nur vom Bedienteil quittiert / keine Bestätigung /

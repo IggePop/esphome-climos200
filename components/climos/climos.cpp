@@ -794,27 +794,6 @@ bool Climos::send_boost_duration(float minutes) {
   return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
 }
 
-bool Climos::send_marking_test(uint8_t marked) {
-  if (marked > SEND_MARKED_BYTES) {
-    ESP_LOGW(TAG, "Test 9. Bit: %u Bytes nicht vorgesehen (0..%u)", marked, SEND_MARKED_BYTES);
-    return false;
-  }
-  if (current_mode_ < MODE_MIN || current_mode_ > MODE_MAX) {
-    ESP_LOGW(TAG, "Test 9. Bit: Betriebsart noch unbekannt, nichts gesendet");
-    return false;
-  }
-  ESP_LOGW(TAG, "Test 9. Bit: sende laufende Betriebsart mit 9. Bit auf %u Byte(s)", marked);
-  next_marked_bytes_ = marked;
-  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_MODE & 0xFF), static_cast<uint8_t>(OBJ_MODE >> 8),
-                             current_mode_};
-  char label[48];
-  std::snprintf(label, sizeof(label), "Test 9. Bit auf %u Byte(s), %s", marked,
-                mode_to_string_(current_mode_).c_str());
-  const bool ok = queue_request_(payload, sizeof(payload), CONFIRM_MODE, current_mode_, label);
-  next_marked_bytes_ = SEND_MARKED_BYTES;
-  return ok;
-}
-
 bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
                             const std::string &label) {
   if (!write_enabled_) {
@@ -833,7 +812,6 @@ bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind ki
   pending_kind_ = kind;
   pending_mode_ = mode;
   pending_label_ = label;
-  pending_marked_bytes_ = next_marked_bytes_;
   publish_send_status_(("vorgemerkt: " + label).c_str());
   return true;
 }
@@ -899,7 +877,6 @@ bool Climos::queue_frame_(uint8_t first, uint8_t dst, uint8_t cmd, const uint8_t
   pending_since_ = millis();
   pending_kind_ = CONFIRM_NONE;
   pending_mode_ = 0;
-  pending_marked_bytes_ = SEND_MARKED_BYTES;
   // Ein altes Fenster gilt nicht: erst den nächsten Poll an FF abwarten
   ff_poll_seen_ = false;
   high_freq_.start();
@@ -940,7 +917,6 @@ void Climos::loop_confirm_(uint32_t now) {
   pending_kind_ = kind;
   pending_mode_ = mode;
   pending_label_ = label;
-  pending_marked_bytes_ = sent_marked_bytes_;
   ff_poll_seen_ = false;
   high_freq_.start();
 }
@@ -1005,7 +981,7 @@ void Climos::loop_send_() {
 bool Climos::transmit_pending_(const char *how, uint32_t now) {
   if (sender_.is_busy())
     return false;
-  if (!sender_.send(pending_frame_, pending_size_, pending_marked_bytes_)) {
+  if (!sender_.send(pending_frame_, pending_size_, SEND_MARKED_BYTES)) {
     ESP_LOGW(TAG, "Nicht gesendet: RMT hat abgelehnt");
     if (pending_kind_ != CONFIRM_NONE)
       publish_send_status_(("Fehler: " + pending_label_).c_str());
@@ -1021,10 +997,9 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
   last_watch_log_.clear();
   std::memcpy(sent_frame_, pending_frame_, pending_size_);
   sent_size_ = pending_size_;
-  sent_marked_bytes_ = pending_marked_bytes_;
   // Log erst nach dem Start, das Frame läuft in Hardware weiter
-  ESP_LOGI(TAG, "Gesendet (%s, 9. Bit auf %u Byte(s), %u RMT-Symbole, %u µs): %s", how,
-           static_cast<unsigned int>(sent_marked_bytes_), static_cast<unsigned int>(sender_.last_symbol_count()),
+  ESP_LOGI(TAG, "Gesendet (%s, %u RMT-Symbole, %u µs): %s", how,
+           static_cast<unsigned int>(sender_.last_symbol_count()),
            static_cast<unsigned int>(BusEncoder::frame_duration_us(pending_size_)),
            to_hex_(pending_frame_, pending_size_).c_str());
   if (pending_kind_ != CONFIRM_NONE) {
