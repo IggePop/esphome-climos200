@@ -816,8 +816,52 @@ bool Climos::send_system_power(bool on) {
   return queue_request_(payload, sizeof(payload), CONFIRM_SYSTEM, 0, "Anlage aus");
 }
 
+bool Climos::send_schedule(uint8_t day_mask, const std::string &text) {
+  static const char *const DAYS[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
+  day_mask &= 0x7F;
+  if (day_mask == 0) {
+    ESP_LOGW(TAG, "Wochenprogramm: keine Tage gewählt");
+    return false;
+  }
+  std::string group = "Wochenprogramm ";
+  if (day_mask == SCHEDULE_MON_FRI) {
+    group += "Mo-Fr";
+  } else if (day_mask == SCHEDULE_SAT_SUN) {
+    group += "Sa-So";
+  } else {
+    bool first = true;
+    for (uint8_t d = 0; d < 7; d++) {
+      if (day_mask & (1u << d)) {
+        group += (first ? "" : ",");
+        group += DAYS[d];
+        first = false;
+      }
+    }
+  }
+  uint8_t levels[SCHEDULE_SLOTS];
+  std::string error;
+  if (!parse_schedule_text(text, levels, error)) {
+    ESP_LOGW(TAG, "%s nicht gesendet: %s", group.c_str(), error.c_str());
+    publish_send_status_(("ungültig: " + group + " (" + error + ")").c_str());
+    return false;
+  }
+  seq_payloads_ = build_schedule_payloads(day_mask, levels);
+  seq_index_ = 0;
+  seq_label_ = group;
+  seq_active_ = true;
+  char label[48];
+  std::snprintf(label, sizeof(label), "%s (1/%u)", group.c_str(), static_cast<unsigned int>(seq_payloads_.size()));
+  if (!queue_request_(seq_payloads_[0].data(), seq_payloads_[0].size(), CONFIRM_ACK, 0, label, true)) {
+    seq_active_ = false;
+    return false;
+  }
+  return true;
+}
+
 bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
-                            const std::string &label) {
+                            const std::string &label, bool keep_sequence) {
+  if (!keep_sequence)
+    seq_active_ = false;
   if (!write_enabled_) {
     ESP_LOGW(TAG, "Nicht vorgemerkt: Senden gesperrt");
     publish_send_status_(("gesperrt: " + label).c_str());
@@ -860,6 +904,22 @@ void Climos::confirm_success_(ConfirmKind kind, const char *how) {
       settings_pref_.save(&settings_);
       settings_dirty_ = false;
     }
+  }
+  if (kind == CONFIRM_ACK && seq_active_) {
+    // Mehrteilige Anforderung: nächstes Frame vormerken, erst am Ende "angenommen" für das Ganze
+    seq_index_++;
+    if (seq_index_ < seq_payloads_.size()) {
+      char next[48];
+      std::snprintf(next, sizeof(next), "%s (%u/%u)", seq_label_.c_str(), static_cast<unsigned int>(seq_index_ + 1),
+                    static_cast<unsigned int>(seq_payloads_.size()));
+      ESP_LOGI(TAG, "%s: Frame %u/%u angenommen", seq_label_.c_str(), static_cast<unsigned int>(seq_index_),
+               static_cast<unsigned int>(seq_payloads_.size()));
+      queue_request_(seq_payloads_[seq_index_].data(), seq_payloads_[seq_index_].size(), CONFIRM_ACK, 0, next, true);
+      return;
+    }
+    seq_active_ = false;
+    publish_send_status_(("angenommen (Lüftergerät): " + seq_label_).c_str());
+    return;
   }
   publish_send_status_(((kind == CONFIRM_ACK ? "angenommen (Lüftergerät): " : "bestätigt: ") + label).c_str());
 }
@@ -922,6 +982,7 @@ void Climos::loop_confirm_(uint32_t now) {
   if (confirm_attempt_ >= (kind == CONFIRM_SYSTEM ? 1 : SEND_MAX_ATTEMPTS)) {
     ESP_LOGW(TAG, "Keine Bestätigung nach %u Versuchen", static_cast<unsigned int>(confirm_attempt_));
     confirm_attempt_ = 0;
+    seq_active_ = false;
     publish_send_status_(((acked_by_panel_only_ ? "nur vom Bedienteil quittiert: " : "keine Bestätigung: ") + label)
                              .c_str());
     acked_by_panel_only_ = false;
@@ -929,6 +990,7 @@ void Climos::loop_confirm_(uint32_t now) {
   }
   if (!write_enabled_) {
     confirm_attempt_ = 0;
+    seq_active_ = false;
     publish_send_status_(("gesperrt: " + label).c_str());
     return;
   }
@@ -956,6 +1018,7 @@ void Climos::loop_send_() {
       publish_send_status_(("gesperrt: " + pending_label_).c_str());
     pending_kind_ = CONFIRM_NONE;
     confirm_attempt_ = 0;
+    seq_active_ = false;
     clear_pending_();
     return;
   }
@@ -966,6 +1029,7 @@ void Climos::loop_send_() {
       publish_send_status_(("kein Sendefenster: " + pending_label_).c_str());
     pending_kind_ = CONFIRM_NONE;
     confirm_attempt_ = 0;
+    seq_active_ = false;
     clear_pending_();
     return;
   }
@@ -1010,6 +1074,7 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
       publish_send_status_(("Fehler: " + pending_label_).c_str());
     pending_kind_ = CONFIRM_NONE;
     confirm_attempt_ = 0;
+    seq_active_ = false;
     clear_pending_();
     return false;
   }

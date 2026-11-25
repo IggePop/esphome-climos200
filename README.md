@@ -28,6 +28,9 @@ Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerüc
   das Lüftergerät den Empfang quittiert (`86`/`87`, dieselbe Bestätigung, die das Bedienteil bekommt).
   Erst dann übernimmt der Sensor den Wert.
 
+- **Wochenprogramm** über Texteingaben je Tag und für Mo–Fr/Sa–So, im Format der Anzeige,
+  z. B. `00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1`. Gesendet werden nur die Register der gewählten
+  Tage, wie vom Bedienteil. Jedes Frame muss das Lüftergerät quittieren.
 - **Anlage ein/aus** über zwei Knöpfe. Bestätigt über den Status 0x08. Nach „Ein“ bleibt das Display
   des Bedienteils dunkel, bis man es antippt, die Anlage läuft aber normal.
 
@@ -38,7 +41,7 @@ Für alles gilt:
 - Schalter „Senden aktiv“ als Not-Aus.
 - Eine Anmeldung als Bedienteil ist nicht nötig.
 
-Geplant: weitere Einstellwerte (Stufen-Leistung, Laufzeit bei Abwesend, …) und Wochenprogramm, siehe
+Geplant: weitere Einstellwerte (Stufen-Leistung, Laufzeit bei Abwesend, …), siehe
 [docs/fahrplan.md](docs/fahrplan.md).
 
 Warum ein ESP32 und kein USB- oder Ethernet-RS485-Adapter: Die Geräte prüfen das 9. Bit auf den ersten
@@ -76,18 +79,20 @@ Benötigt ESPHome mit ESP-IDF (getestet mit 2026.10/2026.11, IDF 5.5).
 
 | Pfad | Inhalt |
 |---|---|
-| `components/climos/` | Komponente: Parser, Objekte, Speicher, Sendelogik (`climos.*`), RMT-Sender (`bus_sender.*`), Messmodus für das 9. Bit (`bit_decoder.*`) |
+| `components/climos/` | Komponente: Parser, Objekte, Speicher, Sendelogik (`climos.*`), RMT-Sender (`bus_sender.*`), Wochenprogramm Text ↔ Register (`schedule_codec.*`), Messmodus für das 9. Bit (`bit_decoder.*`) |
 | `kwl.yaml` | Gerätekonfiguration (nur `!secret`-Verweise) |
 | `docs/protokoll.md` | Busprotokoll: Frames, Adressen, Befehle, Objekte, Sendefenster |
 | `docs/fahrplan.md` | Fahrplan und Laborbuch mit allen Mitschnitten |
 | `tools/` | Mitschnitt mit einem RS485-Ethernet-Adapter (`capture.py`, `compare.py`), Syntaxcheck mit dem ESPHome-Toolchain (`xcheck.py`) |
-| `tests/` | Host-Test der Sendekodierung gegen den Dekoder |
+| `tests/` | Host-Tests: Sendekodierung gegen den Dekoder, Wochenprogramm gegen Mitschnitte des Bedienteils |
 
-Host-Test:
+Host-Tests:
 
 ```bash
 g++ -std=gnu++20 -I components/climos tests/test_sender.cpp \
     components/climos/bus_sender.cpp components/climos/bit_decoder.cpp -o /tmp/test_sender && /tmp/test_sender
+g++ -std=gnu++20 -I components/climos tests/test_schedule.cpp \
+    components/climos/schedule_codec.cpp -o /tmp/test_schedule && /tmp/test_schedule
 ```
 
 ## Dank

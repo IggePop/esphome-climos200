@@ -11,6 +11,7 @@
 
 #include "bit_decoder.h"
 #include "bus_sender.h"
+#include "schedule_codec.h"
 
 #include <map>
 #include <string>
@@ -68,6 +69,10 @@ class Climos : public Component, public uart::UARTDevice {
   // Anlage ein/aus wie das Bedienteil. Aus: 07 00 00, An: 07 00 01 0E 00 00 (löst Neuanmeldung aller Geräte aus).
   // Bestätigt, wenn 0x08 (Anlage an) den Wert meldet oder der Master 0x07 mit erstem Byte 00 wiederholt.
   bool send_system_power(bool on);
+  // Wochenprogramm für die gewählten Tage setzen (Bitmaske, Bit 0 = Montag .. Bit 6 = Sonntag), alle Tage
+  // bekommen dasselbe Programm. Text wie in der Anzeige, z.B. "00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1".
+  // Frames nacheinander (höchstens 6 Register je Frame), jedes muss vom Lüftergerät quittiert sein.
+  bool send_schedule(uint8_t day_mask, const std::string &text);
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -136,7 +141,8 @@ class Climos : public Component, public uart::UARTDevice {
   //       die gesendeten Werte werden übernommen. Quittung nur vom Bedienteil zählt nicht.
   // SYSTEM: Anlage an/aus, bestätigt über 0x08 oder das Master-Echo von 0x07; nur ein Versuch, 20 s Frist
   enum ConfirmKind : uint8_t { CONFIRM_NONE, CONFIRM_MODE, CONFIRM_ACK, CONFIRM_SYSTEM };
-  bool queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label);
+  bool queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label,
+                      bool keep_sequence = false);
   void confirm_success_(ConfirmKind kind, const char *how);
   // Wartet eine Wiederholung dieses Typs (Bestätigung kam nach Ablauf der Frist)?
   bool retry_pending_(ConfirmKind kind) const {
@@ -174,6 +180,11 @@ class Climos : public Component, public uart::UARTDevice {
   uint8_t confirm_mode_{0};
   std::string confirm_label_;
   uint8_t confirm_attempt_{0};
+  // Mehrteilige Anforderung (Wochenprogramm): Nutzdaten der Frames, aktuelles Frame, Name
+  std::vector<std::vector<uint8_t>> seq_payloads_;
+  size_t seq_index_{0};
+  bool seq_active_{false};
+  std::string seq_label_;
   // Erstes Byte des gerade verarbeiteten Frames (00 = Echo des Masters)
   uint8_t frame_first_byte_{0};
   // An wen ging das letzte 86 (Bestätigung anfordern)? Die folgende 87 kommt von diesem Gerät.

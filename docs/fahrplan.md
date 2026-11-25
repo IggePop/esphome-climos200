@@ -251,6 +251,19 @@ machen zu müssen.
       - Vergleich nur über das ESP-Log (zeigt nur geänderte Frames). Exakter Vergleich: Mitschnitt mit dem
         Debug-Empfänger, optional
 
+- [x] Mitschnitt Wochenprogramm Mo-Fr am Bedienteil (2026-11-25, 20:00 -> 19:30 -> 20:00 Stufe 1):
+      - **Nur die Register der geänderten Gruppe**, höchstens 6 je Frame, direkt hintereinander nach Poll 04:
+        `01 00 85 3C .. .. 64 00 … 69 00 …`, `… 6A 00 … 6F 00 …`, `01 00 85 1E .. .. 70 00 … 72 00 …`
+        (Mo-Fr = 6 + 6 + 3). Die frühere Notiz „alle 21 Register“ stammte von einer Änderung beider Gruppen
+      - Die Frames im Komplett-Abzug des Masters sehen ähnlich aus, das letzte hat aber Länge 3E mit weiteren Objekten
+- [x] Wochenprogramm setzen (2026-11-25): Texteingaben je Tag und für Mo-Fr/Sa-So, Format wie die Anzeige
+      (`schedule_codec.cpp`, hostfähig). Frames nacheinander je Sendefenster, jedes muss das Lüftergerät
+      quittieren (max. 3 Versuche je Frame). Host-Test: die 6 Frames der Mo-Fr-Mitschnitte Byte für Byte
+      - **Am Bus getestet:** Mittwoch auf 19:00 Stufe 1 gesendet, 1 Frame `01 00 85 1E 9C 5D 6A 00 …`, quittiert von
+        04 und 08 im 1. Versuch. **Bedienteil zeigt den neuen Wert** (vom User bestätigt), Di/Do unverändert
+      - **Einzelner Tag am Bedienteil:** Es sendet genau dasselbe Frame (gleiche CRC `9C 5D`): nur die 3 Register
+        des Tags, danach `28 00 06`. Format damit bestätigt
+
 ## Test: Prüfen die Geräte das 9. Bit?
 
 Hintergrund: Mit dem Sendefenster nach `FF` (~158 ms) wäre das Timing auch für USB- oder

@@ -125,6 +125,28 @@ Frame wie vom Bedienteil, `0x1B` (Freigaben) wird immer mit dem aktuellen Wert m
 - Der Abschluss-Frame `62 00 00`, den das Bedienteil 15 s nach einer eigenen Änderung schickt, war nicht nötig.
 - Ob das Lüftergerät die neue Schwelle nutzt, ist noch offen. Das zeigt sich erst im Sommerbetrieb.
 
+## Wochenprogramm (Objekte 0x64–0x78)
+
+Je Tag 3 Register zu 8 Byte: 00–08, 08–16 und 16–24 Uhr. Register `0x64 + 3·Tag + n`, Tag 0 = Montag.
+Jede Viertelstunde belegt 2 Bit, die erste Viertelstunde in den unteren Bits:
+`00` aus, `01` Stufe 1, `10` Stufe 2, `11` Stufe 3. Beispiel `55` = 4 × Stufe 1, `AA` = 4 × Stufe 2.
+
+Das Bedienteil sendet nur die Register der geänderten Tage, höchstens 6 je Frame, direkt nacheinander:
+
+```
+Mo–Fr:  01 00 85 3C .. .. 64 00 … 69 00 …   (Mo, Di)
+        01 00 85 3C .. .. 6A 00 … 6F 00 …   (Mi, Do)
+        01 00 85 1E .. .. 70 00 … 72 00 …   (Fr)
+Ein Tag (z. B. Mittwoch):
+        01 00 85 1E 9C 5D 6A 00 55 55 55 55 55 55 55 AA 6B 00 AA … 6C 00 AA AA AA 55 55 55 55 55
+```
+
+- Jedes Frame quittiert das Lüftergerät (`86`/`87`). Danach sendet das Bedienteil die laufende Betriebsart neu.
+- Die Komponente sendet dieselben Frames, aber eins je Sendefenster. Für Mo–Fr dauert das etwa 20 s.
+  Das Bedienteil übernimmt die Werte und zeigt sie an.
+- Im Komplett-Abzug des Masters steht das Wochenprogramm ebenfalls in 4 Frames, das letzte (`0x76`–`0x78`)
+  hat dort Länge `3E` und enthält weitere Objekte.
+
 ## Anlage an/aus (Objekt 0x07)
 
 ```

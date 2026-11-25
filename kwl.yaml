@@ -109,6 +109,123 @@ number:
     set_action:
       - lambda: id(kwl_bus).send_boost_duration(x);
 
+# Wochenprogramm setzen: je Tag oder als Gruppe Mo-Fr bzw. Sa-So (alle Tage der Gruppe gleich).
+# Format wie in der Anzeige: "00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1", Zeiten in Viertelstunden,
+# erster Eintrag 00:00, Stufen "aus" und "Stufe 1".."Stufe 3". Ungültige Eingaben werden abgelehnt
+# (Grund in "Letztes Senden"). Gesendet werden nur die Register der gewählten Tage, höchstens 6 je
+# Frame wie vom Bedienteil (Mo-Fr 3 Frames, Sa-So 1, ein Tag 1), je Sendefenster eins (Mo-Fr ~20 s).
+# Jedes Frame muss das Lüftergerät quittieren, sonst bis zu 3 Versuche je Frame.
+# Die Gruppen zeigen den ersten Tag (Mo-Fr den Montag, Sa-So den Samstag). Tagesmaske: Bit 0 = Mo.
+text:
+  - platform: template
+    name: "Wochenprogramm Mo-Fr setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_montag).has_state())
+        return {};
+      return id(wp_montag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x1F, x);
+  - platform: template
+    name: "Wochenprogramm Sa-So setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_samstag).has_state())
+        return {};
+      return id(wp_samstag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x60, x);
+  - platform: template
+    name: "Wochenprogramm Montag setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_montag).has_state())
+        return {};
+      return id(wp_montag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x01, x);
+  - platform: template
+    name: "Wochenprogramm Dienstag setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_dienstag).has_state())
+        return {};
+      return id(wp_dienstag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x02, x);
+  - platform: template
+    name: "Wochenprogramm Mittwoch setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_mittwoch).has_state())
+        return {};
+      return id(wp_mittwoch).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x04, x);
+  - platform: template
+    name: "Wochenprogramm Donnerstag setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_donnerstag).has_state())
+        return {};
+      return id(wp_donnerstag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x08, x);
+  - platform: template
+    name: "Wochenprogramm Freitag setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_freitag).has_state())
+        return {};
+      return id(wp_freitag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x10, x);
+  - platform: template
+    name: "Wochenprogramm Samstag setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_samstag).has_state())
+        return {};
+      return id(wp_samstag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x20, x);
+  - platform: template
+    name: "Wochenprogramm Sonntag setzen"
+    icon: mdi:calendar-edit
+    mode: text
+    max_length: 255
+    update_interval: 5s
+    lambda: |-
+      if (!id(wp_sonntag).has_state())
+        return {};
+      return id(wp_sonntag).state;
+    set_action:
+      - lambda: id(kwl_bus).send_schedule(0x40, x);
+
 # Für Home Assistant einkommentieren (hier wird ESPHome ohne Home Assistant über MQTT betrieben).
 #api:
 #  encryption:
@@ -169,7 +286,7 @@ climos:
   tx_pin: GPIO4
   # Ergebnis der letzten Umschaltung: vorgemerkt / gesendet (Versuch n) / bestätigt /
   # angenommen (Lüftergerät) / nur vom Bedienteil quittiert / keine Bestätigung /
-  # kein Sendefenster / gesperrt
+  # kein Sendefenster / gesperrt / ungültig
   send_status:
     name: "Letztes Senden"
   # Zuordnung abgeleitet aus Wärmerückgewinnung (~80 %) bei geschlossenem Bypass
@@ -273,18 +390,25 @@ climos:
     name: "Frostschutz-Schwelle Feuchte-WT"
   # Wochenprogramm, nur im Komplett-Abzug oder bei Änderung am Bedienteil
   schedule_monday:
+    id: wp_montag
     name: "Wochenprogramm Montag"
   schedule_tuesday:
+    id: wp_dienstag
     name: "Wochenprogramm Dienstag"
   schedule_wednesday:
+    id: wp_mittwoch
     name: "Wochenprogramm Mittwoch"
   schedule_thursday:
+    id: wp_donnerstag
     name: "Wochenprogramm Donnerstag"
   schedule_friday:
+    id: wp_freitag
     name: "Wochenprogramm Freitag"
   schedule_saturday:
+    id: wp_samstag
     name: "Wochenprogramm Samstag"
   schedule_sunday:
+    id: wp_sonntag
     name: "Wochenprogramm Sonntag"
 
 sensor:
