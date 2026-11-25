@@ -1060,6 +1060,24 @@ void Climos::refresh_pending_clock_() {
   pending_frame_[5] = crc >> 8;
 }
 
+bool Climos::request_full_dump() {
+  static const uint8_t NO_PAYLOAD[1] = {0};
+  if (!write_enabled_) {
+    publish_send_status_("gesperrt: Komplett-Abzug anfordern");
+    return false;
+  }
+  confirm_kind_ = CONFIRM_NONE;
+  confirm_attempt_ = 0;
+  seq_active_ = false;
+  clock_sync_active_ = false;
+  if (!queue_frame_(FRAME_START, 0x01, 0x83, NO_PAYLOAD, 0)) {
+    publish_send_status_("Fehler: Komplett-Abzug anfordern");
+    return false;
+  }
+  publish_send_status_("vorgemerkt (ohne Bestätigung): Komplett-Abzug anfordern");
+  return true;
+}
+
 bool Climos::send_system_power(bool on) {
   if (on) {
     // Wie das Bedienteil: 0x07 = 1 und 0x0E (Fehlercode) = 0

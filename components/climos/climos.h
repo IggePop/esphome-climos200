@@ -85,6 +85,10 @@ class Climos : public Component, public uart::UARTDevice {
   // Abweichung der Uhr der Anlage (aus dem Zeit-Frame des Masters) von now in Sekunden,
   // INT32_MAX wenn unbekannt, 86400 wenn das Datum abweicht
   int32_t panel_clock_deviation(const ESPTime &now) const;
+  // Komplett-Abzug anfordern wie das Bedienteil am Ende der Anmeldung (01 01 83 00 an den Master).
+  // Einmal im Sendefenster, ohne Bestätigung und ohne Wiederholung. Der Master antwortet mit 01 00 83 00 und
+  // dem Abzug, danach melden sich die Geräte neu: der Lüfter geht dabei etwa 13 s aus (2026-11-25).
+  bool request_full_dump();
   void setup() override;
   void loop() override;
   void dump_config() override;

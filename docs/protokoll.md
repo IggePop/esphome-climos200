@@ -203,6 +203,21 @@ Ein Tag (z. B. Mittwoch):
   **Display des Bedienteils bleibt nach „Ein“ dunkel**, bis man es antippt. Das Antippen sendet nichts.
 - „Ein“ von außen löst also einen Komplett-Abzug aus. Danach liegen alle Einstellwerte frisch vom Bus vor.
 
+## Komplett-Abzug anfordern (Befehl 83)
+
+```
+01 FF 84 00                  Sendefenster
+01 01 83 00 4F 0F            Anforderung an den Master (wie das Bedienteil am Ende der Anmeldung)
+01 00 83 00 7F 38            Master, nach 15 ms
+01 00 85 3C .. 00 00 …       Komplett-Abzug, 11 Frames (0x00–0x94) in etwa 0,9 s
+01 04 86 00 / 01 08 86 00    beide Geräte quittieren
+00 00 01 07 01 0D 00 …       Bedienteil und Lüftergerät melden sich neu
+```
+
+- Eine Anmeldung (`80`/`81`) ist dafür nicht nötig, der Master nimmt `83` von jedem an.
+- **Nebenwirkung:** Das Lüftergerät meldet sich neu, 0x1A fällt etwa 13 s lang von `0D` auf `01`, und der
+  Lüfter geht dabei kurz aus. Deshalb nur von Hand anfordern, nicht nach jedem Neustart des ESP.
+
 ## Wichtige Objekte
 
 | ID | Länge | Bedeutung |
@@ -214,7 +229,7 @@ Ein Tag (z. B. Mittwoch):
 | `0x08` | 1 | Anlage an |
 | `0x0A`–`0x0C` | 16/4/3 | Letzte Meldung: Code, Datum, Uhrzeit |
 | `0x0E` | 1 | Fehlercode (0 = keine Störung) |
-| `0x1A` | 1 | Status Lüftergerät: Bit 3 Fortluftventilator, Bit 5 Sommerlüftung läuft |
+| `0x1A` | 1 | Status Lüftergerät: Bit 3 Fortluftventilator (bestätigt), Bit 5 Sommerlüftung läuft |
 | `0x1B` | 2 | Freigaben, Bit 7 = Sommerlüftung freigegeben |
 | `0x26` | 5 | Betriebszeit |
 | `0x27` | 1 | Gefahrene Lüfterstufe (in Automatik die vom Programm gewählte) |

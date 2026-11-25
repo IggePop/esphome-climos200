@@ -38,6 +38,8 @@ Frostschutz-Art sowie Datum und Uhrzeit der Anlage mit der Abweichung zur NTP-Ze
 - **Uhr der Anlage** stellen per Knopf auf die NTP-Zeit, dazu täglich um 03:30 automatisch, wenn sie
   mehr als 60 s abweicht. Bestätigt, wenn der Master die Werte selbst wiederholt (dafür gibt es keine
   Quittung über 86/87).
+- **Komplett-Abzug anfordern** per Knopf (`01 01 83 00`): Der Master schickt alle Register neu. Der Lüfter
+  geht dabei etwa 13 s aus, daher nur von Hand. Sonst hält der ESP die Einstellwerte im Flash.
 - **Anlage ein/aus** über zwei Knöpfe. Bestätigt über den Status 0x08. Nach „Ein“ bleibt das Display
   des Bedienteils dunkel, bis man es antippt, die Anlage läuft aber normal.
 

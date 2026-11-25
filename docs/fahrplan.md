@@ -311,6 +311,13 @@ machen zu müssen.
       (9 x leerer Wochenprogramm-Text nach dem Neustart, abgelehnt). Gefahr: ein einmal über ioBroker gesetzter
       Befehl wäre nach jedem Neustart erneut gesendet worden. Vom User abgeschaltet (2026-11-25). Leerer Text
       wird zusätzlich still ignoriert
+- [x] **Komplett-Abzug selbst anfordern** (2026-11-25, 22:02, Mitschnitt Debug-Empfänger + ESP-Log):
+      `01 01 83 00 4F 0F` im Fenster nach FF -> Master antwortet nach 15 ms `01 00 83 00 7F 38`, dann
+      Komplett-Abzug in 11 Frames (0x00..0x94, +0,1..+1,0 s), 86/87 an 04 und 08, danach melden sich Bedienteil
+      (`00 00 01 07 01 0D 00 ETA0036E31E`) und Lüftergerät (`… 19 00 SWZ0025B27A 1A 00 01 29 00 06 2B 00 00`) neu.
+      Keine Anmeldung (80/81) nötig. **Aber:** 0x1A wechselt `0D` -> `01` -> `0D` -> `01` -> `0D` (ca. 13 s
+      Bit 2 und 3 aus), **der Lüfter geht dabei kurz aus** (laut User). Daher nicht automatisch nach jedem
+      ESP-Start, nur von Hand. Flash-Speicher der Einstellwerte bleibt. 0x1A Bit 3 = Fortluftventilator bestätigt
 - [x] Webserver auf `auth: type: digest` umgestellt (ab ESPHome 2027.1 Standard), capture.py kann Digest
 
 ## Test: Prüfen die Geräte das 9. Bit?
