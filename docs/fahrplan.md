@@ -358,7 +358,9 @@ machen zu müssen.
       - **Filter-Reset** vom ESP (User wollte bewusst zurücksetzen): `01 00 85 0E 2B 20 3D 00 00 00 28 00 00 3E 00 00 00 28 00 00`
         (40 Tage), im 2. Versuch von 08 quittiert. Danach Intervall 40 d, Restlaufzeit 39 d (39 d 23:59, Sensor rundet ab)
       - Uhr der Anlage nach Start: Abweichung 0 s
-- [ ] Noch offen: Filter-Intervall allein senden (number) testen, Restlaufzeit muss stehen bleiben
+- [x] Filter-Intervall allein vom ESP (23:52): `01 00 85 07 97 46 3D 00 00 00 B4 00 00` (180 Tage, byte-gleich mit dem
+      Bedienteil um 23:26:26), im 2. Versuch von 08 quittiert. Master danach `3E 00 39 17 27 00 00` = 39 d 23:57:
+      Restlaufzeit bleibt stehen, wie am Bedienteil
 - [ ] ~~Nächstes: Filter-Reset~~ (erledigt, s. o.) — am Bedienteil einmal mitschneiden (Frame, Quittung, Reaktion von 0x09/0x3E),
       dann Knopf/Number "Filter-Reset" mit Intervall 30..180 Tage, Übernahme nach Quittung 08
 - [ ] Laufzeit Abwesend (0x3C) als select 15/30/45, nach kurzem Mitschnitt
