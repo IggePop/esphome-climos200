@@ -349,7 +349,12 @@ machen zu müssen.
 - [x] Umgesetzt (kompiliert, Flash + Test offen): select "Laufzeit Abwesend setzen", number "Filter-Intervall setzen"
       (0x3D allein), Knopf "Filter-Reset" (0x3D + 0x3E = Intervall), Sensor "Frostschutz-Schwelle min. Zuluft" (0x47,
       im Zusatzspeicher; Schlüssel des Zusatzspeichers jetzt fest, IDs nur hinten anfügen)
-- [ ] Testen: Laufzeit Abwesend, Filter-Intervall, Filter-Reset (nur nach echtem Filterwechsel)
+- [ ] **Frostschutz eco/sicher am TFT gegenprüfen** (User, 2026-11-26), vor dem Flashen. Zweifel: Anleitung könnte
+      bei den Werkswerten falsch sein. Test: am TFT nur **eco** um 0,5 K ändern (z. B. -3,0 -> -3,5), im Log nachsehen,
+      ob `4B 00 ..` oder `4A 00 ..` kommt, dann zurückstellen. Ergebnis entscheidet die Namen in kwl.yaml
+      (derzeit vorläufig: 0x4A = sicher, 0x4B = eco)
+- [ ] Danach flashen und testen: Laufzeit Abwesend, Filter-Intervall (Restlaufzeit muss stehen bleiben),
+      Filter-Reset nur nach echtem Filterwechsel
 - [ ] ~~Nächstes: Filter-Reset~~ (erledigt, s. o.) — am Bedienteil einmal mitschneiden (Frame, Quittung, Reaktion von 0x09/0x3E),
       dann Knopf/Number "Filter-Reset" mit Intervall 30..180 Tage, Übernahme nach Quittung 08
 - [ ] Laufzeit Abwesend (0x3C) als select 15/30/45, nach kurzem Mitschnitt
