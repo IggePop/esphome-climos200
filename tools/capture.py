@@ -11,7 +11,7 @@ Umgebung:
 Es wird NIE etwas an den TCP-Port gesendet (der Adapter kann sonst selbst auf den Bus senden).
 Ausgabe: tcp_raw.txt (Zeitstempel + Bytes als Hex), esp_events.txt
 """
-import base64, os, socket, sys, threading, time, urllib.request
+import os, socket, sys, threading, time, urllib.request
 
 TCP_HOST = os.environ["KWL_DEBUG_HOST"]
 TCP_PORT = int(os.environ.get("KWL_DEBUG_PORT", "4196"))
@@ -39,11 +39,15 @@ def tcp_reader():
 
 
 def esp_reader():
-    req = urllib.request.Request(ESP_URL)
-    # Webserver-Login (seit 2026-11-24): KWL_WEB_AUTH="admin:<passwort>"
+    # Webserver-Login: KWL_WEB_AUTH="admin:<passwort>", Digest und Basic (je nachdem, was der ESP verlangt)
+    handlers = []
     if os.environ.get("KWL_WEB_AUTH"):
-        req.add_header("Authorization", "Basic " + base64.b64encode(os.environ["KWL_WEB_AUTH"].encode()).decode())
-    with urllib.request.urlopen(req, timeout=30) as r, open(f"{OUT}/esp_events.txt", "w") as f:
+        user, _, password = os.environ["KWL_WEB_AUTH"].partition(":")
+        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        mgr.add_password(None, ESP_URL, user, password)
+        handlers = [urllib.request.HTTPDigestAuthHandler(mgr), urllib.request.HTTPBasicAuthHandler(mgr)]
+    opener = urllib.request.build_opener(*handlers)
+    with opener.open(ESP_URL, timeout=30) as r, open(f"{OUT}/esp_events.txt", "w") as f:
         while time.time() < stop:
             line = r.readline()
             if not line:

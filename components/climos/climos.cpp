@@ -67,7 +67,7 @@ struct ObjectLength {
   uint8_t length;
 };
 static const ObjectLength OBJECT_LENGTHS[] = {
-    {0x0000, 3}, {0x0001, 4}, {0x0003, 11}, {0x0005, 2}, {0x0006, 1}, {0x0007, 1}, {0x0008, 1},
+    {0x0000, 3}, {0x0001, 4}, {0x0002, 3}, {0x0003, 11}, {0x0004, 1}, {0x0005, 2}, {0x0006, 1}, {0x0007, 1}, {0x0008, 1},
     {0x0009, 16}, {0x000A, 16}, {0x000B, 4}, {0x000C, 3}, {0x000D, 11}, {0x000E, 1}, {0x000F, 1},
     {0x0012, 1}, {0x0015, 1}, {0x0018, 1}, {0x0019, 11}, {0x001A, 1}, {0x001B, 2}, {0x001E, 1},
     {0x0021, 1}, {0x0024, 1}, {0x0025, 1}, {0x0026, 5}, {0x0027, 1}, {0x0028, 1}, {0x0029, 1},
@@ -123,6 +123,11 @@ static const uint16_t OBJ_MODE_FALLBACK = 0x0029;
 // Bestätigung: so lange auf 0x29 von 08 bzw. 0x28 vom Bedienteil warten, dann wiederholen
 static const uint32_t SEND_CONFIRM_MS = 3000;
 static const uint8_t SEND_MAX_ATTEMPTS = 3;
+// Einstellwerte: der Master fragt die Quittung oft nur beim Bedienteil ab, daher mehr Versuche
+static const uint8_t SEND_MAX_ATTEMPTS_ACK = 5;
+// Datum/Uhrzeit: Bestätigung spätestens mit dem nächsten Zeit-Frame (alle 5 s)
+static const uint32_t ECHO_CONFIRM_MS = 7000;
+static const int32_t CLOCK_CONFIRM_TOLERANCE_S = 10;
 static const uint8_t ADDR_PANEL = 0x04;
 static const uint8_t ADDR_FAN_UNIT = 0x08;
 // t_som: Grenzen zur Sicherheit (am Bedienteil gesehen: 24,5 °C, Schritt 0,5 K vermutet)
@@ -143,6 +148,35 @@ static const uint8_t FRAME_START = 0x01;
 static const uint8_t ADDR_REGISTERS = 0x00;
 static const uint8_t MODE_MIN = 1;
 static const uint8_t MODE_MAX = 6;
+// Datum [Wochentag 0 = Mo][Tag][Monat][Jahr 2-stellig] und Uhrzeit [Sekunde][Minute][Stunde],
+// vom Master alle 5 s im Zeit-Frame, vom Bedienteil beim Stellen der Uhr (2026-11-25)
+static const uint16_t OBJ_DATE = 0x0001;
+static const uint16_t OBJ_TIME = 0x0002;
+// Zeit-Frame älter als das: Uhr der Anlage gilt als unbekannt
+static const uint32_t PANEL_CLOCK_MAX_AGE_MS = 30000;
+// Leistung Stufe 1 und 3: Bereich und Schritt wie am Bedienteil (Stufe 2 fest 60 %)
+static const uint8_t STAGE_PERCENT_MIN = 17;
+static const uint8_t STAGE_PERCENT_MAX = 100;
+// Frostschutz-Art: 0 = eco, 1 = sicher, 2 = Feuchte-WT
+static const uint16_t OBJ_FROST_MODE = 0x007B;
+static const uint8_t FROST_MODE_MAX = 2;
+// Einstellwerte im zusätzlichen Speicher (Länge je ID aus OBJECT_LENGTHS, zusammen höchstens 8 Byte, 32 IDs)
+static const uint16_t EXTRA_PERSISTED_IDS[] = {OBJ_FROST_MODE};
+static const uint8_t NUM_EXTRA_PERSISTED = sizeof(EXTRA_PERSISTED_IDS) / sizeof(EXTRA_PERSISTED_IDS[0]);
+static const char *const WEEKDAYS[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
+
+static const char *frost_mode_to_string(uint8_t mode) {
+  switch (mode) {
+    case 0:
+      return "eco";
+    case 1:
+      return "sicher";
+    case 2:
+      return "Feuchte-WT";
+    default:
+      return nullptr;
+  }
+}
 
 void IRAM_ATTR EdgeStore::gpio_intr(EdgeStore *store) {
   const uint32_t time = micros();
@@ -234,6 +268,7 @@ void Climos::setup() {
   rx_buffer_.reserve(256);
   last_byte_time_ = millis();
   last_stats_time_ = millis();
+  setup_extra_settings_();
 
   size_t offset = 0;
   for (uint8_t i = 0; i < NUM_PERSISTED; i++) {
@@ -273,7 +308,47 @@ uint8_t Climos::object_length_(uint16_t id) {
   return 0;
 }
 
+void Climos::setup_extra_settings_() {
+  const uint32_t hash = fnv1_hash("climos_settings_extra") ^ NUM_EXTRA_PERSISTED;
+  extra_pref_ = global_preferences->make_preference<ExtraStore>(hash);
+  if (!extra_pref_.load(&extra_)) {
+    extra_ = ExtraStore{};
+    return;
+  }
+  size_t offset = 0;
+  for (uint8_t i = 0; i < NUM_EXTRA_PERSISTED; i++) {
+    const uint8_t length = object_length_(EXTRA_PERSISTED_IDS[i]);
+    if (extra_.valid & (1u << i))
+      handle_object_(EXTRA_PERSISTED_IDS[i], extra_.data + offset, length);
+    offset += length;
+  }
+}
+
+bool Climos::remember_extra_setting_(uint16_t id, const uint8_t *value, uint8_t length) {
+  size_t offset = 0;
+  for (uint8_t i = 0; i < NUM_EXTRA_PERSISTED; i++) {
+    const uint8_t stored_length = object_length_(EXTRA_PERSISTED_IDS[i]);
+    if (EXTRA_PERSISTED_IDS[i] != id) {
+      offset += stored_length;
+      continue;
+    }
+    if (offset + length > sizeof(extra_.data))
+      return true;
+    const uint32_t bit = 1u << i;
+    if ((extra_.valid & bit) && std::memcmp(extra_.data + offset, value, length) == 0)
+      return true;
+    std::memcpy(extra_.data + offset, value, length);
+    extra_.valid |= bit;
+    // Ändert sich selten: sofort speichern (ESPHome schreibt den Flash ohnehin verzögert)
+    extra_pref_.save(&extra_);
+    return true;
+  }
+  return false;
+}
+
 void Climos::remember_setting_(uint16_t id, const uint8_t *value, uint8_t length) {
+  if (remember_extra_setting_(id, value, length))
+    return;
   if (!persistence_ok_)
     return;
   for (uint8_t i = 0; i < NUM_PERSISTED; i++) {
@@ -314,6 +389,8 @@ void Climos::dump_config() {
   LOG_TEXT_SENSOR("  ", "SW Master", sw_master_text_sensor_);
   LOG_TEXT_SENSOR("  ", "SW Slave", sw_slave_text_sensor_);
   LOG_TEXT_SENSOR("  ", "SW Bedienteil", sw_tft_text_sensor_);
+  LOG_TEXT_SENSOR("  ", "Frostschutz-Art", frost_mode_text_sensor_);
+  LOG_TEXT_SENSOR("  ", "Uhr der Anlage", panel_clock_text_sensor_);
   LOG_BINARY_SENSOR("  ", "Anlage an", system_on_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Sommerlüftung aktiv", summer_ventilation_binary_sensor_);
   LOG_BINARY_SENSOR("  ", "Fortluftventilator", exhaust_fan_binary_sensor_);
@@ -450,7 +527,10 @@ void Climos::handle_frame_(const uint8_t *frame, size_t size) {
     if (watching_)
       ESP_LOGI(TAG, "Nach Senden +%u ms: Quittung von %02X für unser Frame (%s)",
                static_cast<unsigned int>(millis() - last_send_time_), from, to_hex_(frame, size).c_str());
-    if (confirm_kind_ == CONFIRM_ACK || retry_pending_(CONFIRM_ACK)) {
+    if (confirm_kind_ == CONFIRM_ECHO || retry_pending_(CONFIRM_ECHO)) {
+      if (from == ADDR_FAN_UNIT)
+        confirm_success_(CONFIRM_ECHO, "Quittung des Lüftergeräts (87)");
+    } else if (confirm_kind_ == CONFIRM_ACK || retry_pending_(CONFIRM_ACK)) {
       if (from == ADDR_FAN_UNIT) {
         confirm_success_(CONFIRM_ACK, "Quittung des Lüftergeräts (87)");
       } else {
@@ -460,7 +540,10 @@ void Climos::handle_frame_(const uint8_t *frame, size_t size) {
     }
   }
 
-  // Uhrzeit (alle 5 s) und Bestätigungen enthalten nichts Neues: nur auf DEBUG
+  // Uhrzeit (alle 5 s) und Bestätigungen enthalten nichts Neues: nur auf DEBUG.
+  // Datum und Uhrzeit aus dem Zeit-Frame für den Sensor auswerten (nicht gespeichert).
+  if (cmd == CMD_TIME)
+    parse_records_(payload, payload_size);
   if (cmd == CMD_TIME || cmd == CMD_ACK) {
     ESP_LOGD(TAG, "%s", to_hex_(frame, size).c_str());
     return;
@@ -507,13 +590,16 @@ void Climos::parse_records_(const uint8_t *payload, size_t size) {
 void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
   // Beim Senden beobachten: Betriebsart, Freigaben, t_som und Abschluss-Objekt
   if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK || id == OBJ_FEATURES || id == OBJ_SUMMER_THRESHOLD ||
-      id == OBJ_BOOST_DURATION || id == OBJ_SETTINGS_DONE || id == OBJ_SYSTEM_POWER || id == OBJ_SYSTEM_ON)
+      id == OBJ_BOOST_DURATION || id == OBJ_SETTINGS_DONE || id == OBJ_SYSTEM_POWER || id == OBJ_SYSTEM_ON ||
+      id == OBJ_FROST_MODE || (id >= OBJ_FIRST_STAGE_PERCENT && id < OBJ_FIRST_STAGE_PERCENT + NUM_FAN_STAGES))
     watch_hit_ = true;
   // Bestätigung Anlage an/aus: Status 0x08 mit dem neuen Wert oder Echo des Masters (erstes Byte 00) von 0x07
   if (confirm_kind_ == CONFIRM_SYSTEM && (id == OBJ_SYSTEM_ON || (id == OBJ_SYSTEM_POWER && frame_first_byte_ == 0x00))) {
     if ((value[0] != 0) == (confirm_mode_ != 0))
       confirm_success_(CONFIRM_SYSTEM, id == OBJ_SYSTEM_ON ? "Status 0x08" : "Echo des Masters (0x07)");
   }
+  if (frame_first_byte_ == 0x00 && (id == OBJ_DATE || id == OBJ_TIME))
+    check_echo_confirm_(id, value);
   if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK) {
     // Bestätigung der gesendeten Betriebsart (auch für eine bereits vorgemerkte Wiederholung)
     const uint8_t expected =
@@ -584,6 +670,27 @@ void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
     case OBJ_ERROR_CODE:
       publish_if_changed_(error_code_sensor_, value[0]);
       break;
+    case OBJ_FROST_MODE: {
+      const char *name = frost_mode_to_string(value[0]);
+      char buf[16];
+      if (name == nullptr) {
+        std::snprintf(buf, sizeof(buf), "Code %u", value[0]);
+        name = buf;
+      }
+      publish_if_changed_(frost_mode_text_sensor_, name);
+      break;
+    }
+    case OBJ_DATE:
+      std::memcpy(panel_date_, value, sizeof(panel_date_));
+      has_panel_date_ = true;
+      publish_panel_clock_();
+      break;
+    case OBJ_TIME:
+      std::memcpy(panel_time_, value, sizeof(panel_time_));
+      has_panel_time_ = true;
+      panel_time_ms_ = millis();
+      publish_panel_clock_();
+      break;
     case OBJ_FEATURES:
       features_raw_[0] = value[0];
       features_raw_[1] = value[1];
@@ -645,6 +752,27 @@ void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
     default:
       break;
   }
+}
+
+// Uhr der Anlage, z.B. "Mi 25.11.2026 20:34" (nur Minuten, damit der Sensor nicht alle 5 s sendet)
+void Climos::publish_panel_clock_() {
+  if (!has_panel_date_ || !has_panel_time_)
+    return;
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%s %02u.%02u.%04u %02u:%02u", panel_date_[0] < 7 ? WEEKDAYS[panel_date_[0]] : "?",
+                panel_date_[1], panel_date_[2], 2000u + panel_date_[3], panel_time_[2], panel_time_[1]);
+  publish_if_changed_(panel_clock_text_sensor_, buf);
+}
+
+int32_t Climos::panel_clock_deviation(const ESPTime &now) const {
+  if (!now.is_valid() || !has_panel_date_ || !has_panel_time_ || millis() - panel_time_ms_ > PANEL_CLOCK_MAX_AGE_MS)
+    return INT32_MAX;
+  if (panel_date_[1] != now.day_of_month || panel_date_[2] != now.month || 2000 + panel_date_[3] != now.year)
+    return 86400;
+  const int32_t panel = panel_time_[2] * 3600 + panel_time_[1] * 60 + panel_time_[0] +
+                        static_cast<int32_t>((millis() - panel_time_ms_) / 1000);
+  const int32_t ours = now.hour * 3600 + now.minute * 60 + now.second;
+  return panel - ours;
 }
 
 // Tag als Liste der Umschaltpunkte, z.B. "00:00 Stufe 1, 07:00 Stufe 2, 19:30 Stufe 1"
@@ -803,6 +931,135 @@ bool Climos::send_boost_duration(float minutes) {
   return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
 }
 
+bool Climos::send_stage_percent(uint8_t stage, float percent) {
+  const long value = std::isnan(percent) ? -1 : std::lround(percent);
+  if (stage != 1 && stage != 3) {
+    ESP_LOGW(TAG, "Stufe %u nicht einstellbar (nur 1 und 3, Stufe 2 ist fest)", stage);
+    return false;
+  }
+  if (value < STAGE_PERCENT_MIN || value > STAGE_PERCENT_MAX) {
+    ESP_LOGW(TAG, "Leistung Stufe %u: %.0f %% ungültig, erlaubt sind %u..%u %%", stage, percent, STAGE_PERCENT_MIN,
+             STAGE_PERCENT_MAX);
+    return false;
+  }
+  const uint16_t id = OBJ_FIRST_STAGE_PERCENT + stage - 1;
+  char label[32];
+  std::snprintf(label, sizeof(label), "Stufe %u %ld %%", stage, value);
+  const uint8_t payload[] = {static_cast<uint8_t>(id & 0xFF), static_cast<uint8_t>(id >> 8),
+                             static_cast<uint8_t>(value)};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_frost_mode(uint8_t mode) {
+  if (mode > FROST_MODE_MAX) {
+    ESP_LOGW(TAG, "Frostschutz-Art %u ungültig, erlaubt sind 0..%u", mode, FROST_MODE_MAX);
+    return false;
+  }
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_FROST_MODE & 0xFF), static_cast<uint8_t>(OBJ_FROST_MODE >> 8),
+                             mode};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0,
+                        std::string("Frostschutz ") + frost_mode_to_string(mode));
+}
+
+bool Climos::send_summer_enabled(bool enabled) {
+  const char *label = enabled ? "Sommerlüftung freigegeben" : "Sommerlüftung gesperrt";
+  if (!has_features_) {
+    // Die übrigen Bits von 0x1B müssen erhalten bleiben
+    ESP_LOGW(TAG, "%s nicht gesendet: Wert von 0x1B unbekannt (kommt erst mit dem Komplett-Abzug)", label);
+    publish_send_status_((std::string("nicht möglich (0x1B unbekannt): ") + label).c_str());
+    return false;
+  }
+  const uint8_t low = enabled ? (features_raw_[0] | FEATURE_SUMMER_VENTILATION)
+                              : (features_raw_[0] & static_cast<uint8_t>(~FEATURE_SUMMER_VENTILATION));
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_FEATURES & 0xFF), static_cast<uint8_t>(OBJ_FEATURES >> 8), low,
+                             features_raw_[1]};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_clock(const ESPTime &now) {
+  if (!now.is_valid()) {
+    ESP_LOGW(TAG, "Uhr nicht gestellt: keine gültige Uhrzeit (NTP?)");
+    publish_send_status_("nicht möglich (keine Uhrzeit): Uhr stellen");
+    return false;
+  }
+  const uint32_t seconds = now.hour * 3600u + now.minute * 60u + now.second;
+  // Datum und Uhrzeit gehen in zwei Frames: kurz vor Mitternacht könnte das Datum nicht mehr passen
+  if (seconds > 86400u - 120u) {
+    ESP_LOGW(TAG, "Uhr nicht gestellt: zu nah an Mitternacht");
+    publish_send_status_("nicht möglich (Mitternacht): Uhr stellen");
+    return false;
+  }
+  // ESPTime: 1 = Sonntag .. 7 = Samstag; Master: 0 = Montag .. 6 = Sonntag. Das Bedienteil schickte am
+  // Mittwoch aber 03, der Master wiederholte 02 (2026-11-25). Wie das Bedienteil senden (vermutlich 0 = Sonntag),
+  // das passt, ob der Master den Wochentag umrechnet oder aus dem Datum bestimmt.
+  const uint8_t weekday = (now.day_of_week + 5) % 7;
+  const uint8_t panel_weekday = now.day_of_week - 1;
+  seq_payloads_ = {
+      {static_cast<uint8_t>(OBJ_DATE & 0xFF), static_cast<uint8_t>(OBJ_DATE >> 8), panel_weekday, now.day_of_month,
+       now.month, static_cast<uint8_t>(now.year % 100)},
+      {static_cast<uint8_t>(OBJ_TIME & 0xFF), static_cast<uint8_t>(OBJ_TIME >> 8), now.second, now.minute, now.hour},
+  };
+  char label[48];
+  std::snprintf(label, sizeof(label), "Uhr %s %02u.%02u.%04u %02u:%02u", WEEKDAYS[weekday], now.day_of_month,
+                now.month, now.year, now.hour, now.minute);
+  seq_index_ = 0;
+  seq_label_ = label;
+  seq_active_ = true;
+  clock_sync_active_ = true;
+  clock_base_seconds_ = seconds;
+  clock_base_ms_ = millis();
+  std::string first = seq_label_ + " (1/2)";
+  if (!queue_request_(seq_payloads_[0].data(), seq_payloads_[0].size(), CONFIRM_ECHO, 0, first, true)) {
+    seq_active_ = false;
+    clock_sync_active_ = false;
+    return false;
+  }
+  return true;
+}
+
+// Datum/Uhrzeit bestätigt, wenn der Master (erstes Byte 00) den gesendeten Wert meldet: Datum ohne Wochentag
+// (den setzt der Master selbst), Uhrzeit auf CLOCK_CONFIRM_TOLERANCE_S genau
+void Climos::check_echo_confirm_(uint16_t id, const uint8_t *value) {
+  if (!(confirm_kind_ == CONFIRM_ECHO || retry_pending_(CONFIRM_ECHO)) || sent_size_ < HEADER_SIZE + 2)
+    return;
+  const uint8_t *sent = sent_frame_ + HEADER_SIZE;
+  if ((sent[0] | (sent[1] << 8)) != id)
+    return;
+  if (id == OBJ_DATE) {
+    if (sent_size_ < HEADER_SIZE + 6 || std::memcmp(value + 1, sent + 3, 3) != 0)
+      return;
+    confirm_success_(CONFIRM_ECHO, "Datum vom Master übernommen");
+    return;
+  }
+  if (sent_size_ < HEADER_SIZE + 5)
+    return;
+  const int32_t got = value[2] * 3600 + value[1] * 60 + value[0];
+  const int32_t want = sent[4] * 3600 + sent[3] * 60 + sent[2];
+  int32_t diff = got - want;
+  if (diff < -43200)
+    diff += 86400;
+  if (diff > 43200)
+    diff -= 86400;
+  if (diff < -CLOCK_CONFIRM_TOLERANCE_S || diff > CLOCK_CONFIRM_TOLERANCE_S)
+    return;
+  confirm_success_(CONFIRM_ECHO, "Uhrzeit vom Master übernommen");
+}
+
+// Uhrzeit-Frame beim Uhrstellen direkt vor dem Senden (auch bei Wiederholung) auf die aktuelle Zeit setzen
+void Climos::refresh_pending_clock_() {
+  if (!clock_sync_active_ || !seq_active_ || pending_size_ != HEADER_SIZE + 5 ||
+      pending_frame_[HEADER_SIZE] != (OBJ_TIME & 0xFF) || pending_frame_[HEADER_SIZE + 1] != (OBJ_TIME >> 8))
+    return;
+  const uint32_t t = (clock_base_seconds_ + (millis() - clock_base_ms_ + 500) / 1000) % 86400u;
+  pending_frame_[HEADER_SIZE + 2] = t % 60;
+  pending_frame_[HEADER_SIZE + 3] = (t / 60) % 60;
+  pending_frame_[HEADER_SIZE + 4] = t / 3600;
+  uint16_t crc = crc16_xmodem_(pending_frame_, 4);
+  crc = crc16_xmodem_(pending_frame_ + HEADER_SIZE, pending_size_ - HEADER_SIZE, crc);
+  pending_frame_[4] = crc & 0xFF;
+  pending_frame_[5] = crc >> 8;
+}
+
 bool Climos::send_system_power(bool on) {
   if (on) {
     // Wie das Bedienteil: 0x07 = 1 und 0x0E (Fehlercode) = 0
@@ -819,6 +1076,12 @@ bool Climos::send_system_power(bool on) {
 bool Climos::send_schedule(uint8_t day_mask, const std::string &text) {
   static const char *const DAYS[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
   day_mask &= 0x7F;
+  // Leerer Text kommt vom Broker beim Abonnieren (ioBroker "publishOnSubscribe" mit leerem Befehls-State):
+  // still ignorieren, sonst steht nach jedem Neustart "ungültig" in "Letztes Senden"
+  if (text.find_first_not_of(" \t\r\n") == std::string::npos) {
+    ESP_LOGD(TAG, "Wochenprogramm: leerer Text ignoriert");
+    return false;
+  }
   if (day_mask == 0) {
     ESP_LOGW(TAG, "Wochenprogramm: keine Tage gewählt");
     return false;
@@ -860,8 +1123,10 @@ bool Climos::send_schedule(uint8_t day_mask, const std::string &text) {
 
 bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
                             const std::string &label, bool keep_sequence) {
-  if (!keep_sequence)
+  if (!keep_sequence) {
     seq_active_ = false;
+    clock_sync_active_ = false;
+  }
   if (!write_enabled_) {
     ESP_LOGW(TAG, "Nicht vorgemerkt: Senden gesperrt");
     publish_send_status_(("gesperrt: " + label).c_str());
@@ -905,7 +1170,7 @@ void Climos::confirm_success_(ConfirmKind kind, const char *how) {
       settings_dirty_ = false;
     }
   }
-  if (kind == CONFIRM_ACK && seq_active_) {
+  if ((kind == CONFIRM_ACK || kind == CONFIRM_ECHO) && seq_active_) {
     // Mehrteilige Anforderung: nächstes Frame vormerken, erst am Ende "angenommen" für das Ganze
     seq_index_++;
     if (seq_index_ < seq_payloads_.size()) {
@@ -914,14 +1179,15 @@ void Climos::confirm_success_(ConfirmKind kind, const char *how) {
                     static_cast<unsigned int>(seq_payloads_.size()));
       ESP_LOGI(TAG, "%s: Frame %u/%u angenommen", seq_label_.c_str(), static_cast<unsigned int>(seq_index_),
                static_cast<unsigned int>(seq_payloads_.size()));
-      queue_request_(seq_payloads_[seq_index_].data(), seq_payloads_[seq_index_].size(), CONFIRM_ACK, 0, next, true);
+      queue_request_(seq_payloads_[seq_index_].data(), seq_payloads_[seq_index_].size(), kind, 0, next, true);
       return;
     }
     seq_active_ = false;
-    publish_send_status_(("angenommen (Lüftergerät): " + seq_label_).c_str());
+    publish_send_status_(((kind == CONFIRM_ECHO ? "übernommen (Master): " : "angenommen (Lüftergerät): ") + seq_label_).c_str());
     return;
   }
-  publish_send_status_(((kind == CONFIRM_ACK ? "angenommen (Lüftergerät): " : "bestätigt: ") + label).c_str());
+  publish_send_status_(((kind == CONFIRM_ACK ? "angenommen (Lüftergerät): "
+                         : kind == CONFIRM_ECHO ? "übernommen (Master): " : "bestätigt: ") + label).c_str());
 }
 
 void Climos::publish_send_status_(const char *what) {
@@ -979,7 +1245,9 @@ void Climos::loop_confirm_(uint32_t now) {
   const std::string label = confirm_label_;
   confirm_kind_ = CONFIRM_NONE;
   // Anlage an/aus nie wiederholen: "An" löst eine Neuanmeldung aller Geräte aus
-  if (confirm_attempt_ >= (kind == CONFIRM_SYSTEM ? 1 : SEND_MAX_ATTEMPTS)) {
+  const uint8_t max_attempts =
+      kind == CONFIRM_SYSTEM ? 1 : (kind == CONFIRM_ACK ? SEND_MAX_ATTEMPTS_ACK : SEND_MAX_ATTEMPTS);
+  if (confirm_attempt_ >= max_attempts) {
     ESP_LOGW(TAG, "Keine Bestätigung nach %u Versuchen", static_cast<unsigned int>(confirm_attempt_));
     confirm_attempt_ = 0;
     seq_active_ = false;
@@ -995,7 +1263,8 @@ void Climos::loop_confirm_(uint32_t now) {
     return;
   }
   // Wiederholen: dasselbe Frame im nächsten Fenster
-  ESP_LOGW(TAG, "Keine Bestätigung innerhalb %u ms, wiederhole", static_cast<unsigned int>(SEND_CONFIRM_MS));
+  ESP_LOGW(TAG, "Keine Bestätigung nach Versuch %u/%u, wiederhole", static_cast<unsigned int>(confirm_attempt_),
+           static_cast<unsigned int>(max_attempts));
   std::memcpy(pending_frame_, sent_frame_, sent_size_);
   pending_size_ = sent_size_;
   pending_since_ = now;
@@ -1068,6 +1337,7 @@ void Climos::loop_send_() {
 bool Climos::transmit_pending_(const char *how, uint32_t now) {
   if (sender_.is_busy())
     return false;
+  refresh_pending_clock_();
   if (!sender_.send(pending_frame_, pending_size_, SEND_MARKED_BYTES)) {
     ESP_LOGW(TAG, "Nicht gesendet: RMT hat abgelehnt");
     if (pending_kind_ != CONFIRM_NONE)
@@ -1095,7 +1365,8 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
     confirm_mode_ = pending_mode_;
     confirm_label_ = pending_label_;
     confirm_attempt_++;
-    confirm_deadline_ = now + (confirm_kind_ == CONFIRM_SYSTEM ? SYSTEM_CONFIRM_MS : SEND_CONFIRM_MS);
+    confirm_deadline_ = now + (confirm_kind_ == CONFIRM_SYSTEM ? SYSTEM_CONFIRM_MS
+                               : confirm_kind_ == CONFIRM_ECHO ? ECHO_CONFIRM_MS : SEND_CONFIRM_MS);
     char buf[64];
     std::snprintf(buf, sizeof(buf), "gesendet: %s (Versuch %u)", confirm_label_.c_str(),
                   static_cast<unsigned int>(confirm_attempt_));

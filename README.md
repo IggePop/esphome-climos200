@@ -14,7 +14,8 @@ Das Bedienteil bleibt angeschlossen und funktioniert weiter wie gewohnt.
 Filter-Restlaufzeit und -Intervall, Betriebsstunden, Sommerlüftung, Fortluftventilator, Fehlercode,
 letzte Meldung, Softwarestände sowie die Einstellwerte aus dem Bedienteil (Stufen-Leistung,
 Disbalance, Stoßlüftungsdauer, Frostschutz-Schwellen, Wochenprogramm). Werte, die nur beim
-Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerückgewinnungsgrad.
+Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerückgewinnungsgrad,
+Frostschutz-Art sowie Datum und Uhrzeit der Anlage mit der Abweichung zur NTP-Zeit.
 
 **Schreiben:**
 
@@ -23,6 +24,9 @@ Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerüc
 - **Einstellwerte** über je eine `number`, Bereich und Schritt wie am Bedienteil:
   - t_som (Schwelle der Sommerlüftung), 18–30 °C in 0,5er-Schritten
   - Dauer der Stoßlüftung, 15–120 min in 5er-Schritten
+  - Leistung Stufe 1 und Stufe 3, 17–100 % (Stufe 2 ist fest 60 %)
+  - Frostschutz-Art (eco, sicher, Feuchte-WT) über ein `select`
+  - Sommerlüftung freigeben/sperren über einen `switch` (nur Bit 7 von 0x1B, beim Start wird nichts gesendet)
 
   Einstellwerte meldet kein Gerät zurück, auch nicht bei Änderung am Bedienteil. Erfolg gilt daher, wenn
   das Lüftergerät den Empfang quittiert (`86`/`87`, dieselbe Bestätigung, die das Bedienteil bekommt).
@@ -31,17 +35,21 @@ Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerüc
 - **Wochenprogramm** über Texteingaben je Tag und für Mo–Fr/Sa–So, im Format der Anzeige,
   z. B. `00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1`. Gesendet werden nur die Register der gewählten
   Tage, wie vom Bedienteil. Jedes Frame muss das Lüftergerät quittieren.
+- **Uhr der Anlage** stellen per Knopf auf die NTP-Zeit, dazu täglich um 03:30 automatisch, wenn sie
+  mehr als 60 s abweicht. Bestätigt, wenn der Master die Werte selbst wiederholt (dafür gibt es keine
+  Quittung über 86/87).
 - **Anlage ein/aus** über zwei Knöpfe. Bestätigt über den Status 0x08. Nach „Ein“ bleibt das Display
   des Bedienteils dunkel, bis man es antippt, die Anlage läuft aber normal.
 
 Für alles gilt:
 
 - Gesendet wird nur im Fenster nach dem Broadcast-Poll `01 FF 84 00`, in dem kein anderes Gerät spricht.
-- Ohne Bestätigung bis zu zwei Wiederholungen. Ergebnis im Sensor „Letztes Senden“.
+- Ohne Bestätigung wird wiederholt (Einstellwerte bis zu 5 Versuche, sonst 3, Anlage ein/aus nie).
+  Ergebnis im Sensor „Letztes Senden“.
 - Schalter „Senden aktiv“ als Not-Aus.
 - Eine Anmeldung als Bedienteil ist nicht nötig.
 
-Geplant: weitere Einstellwerte (Stufen-Leistung, Laufzeit bei Abwesend, …), siehe
+Geplant: Laufzeit bei Abwesend, Filter-Reset u. a., siehe
 [docs/fahrplan.md](docs/fahrplan.md).
 
 Warum ein ESP32 und kein USB- oder Ethernet-RS485-Adapter: Die Geräte prüfen das 9. Bit auf den ersten
@@ -72,6 +80,9 @@ Komponente dann sofort.
 3. Die Einträge aus `secrets.example.yaml` in die eigene `secrets.yaml` übernehmen.
 4. Mit Home Assistant den `api:`-Block einkommentieren. Ohne Home Assistant läuft alles über MQTT.
    Dann einen **Broker mit Login** verwenden, denn über MQTT lässt sich die Betriebsart setzen.
+   Der Broker darf beim Abonnieren keine gespeicherten Befehle nachsenden (ioBroker: „publishOnSubscribe“
+   aus), sonst würde der ESP einen alten Befehl nach jedem Neustart erneut auf den Bus schicken.
+5. Der Webserver verlangt einen Login mit Digest-Verfahren.
 
 Benötigt ESPHome mit ESP-IDF (getestet mit 2026.10/2026.11, IDF 5.5).
 

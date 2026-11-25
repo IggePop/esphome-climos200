@@ -65,6 +65,32 @@ select:
             }
           }
 
+  # Frostschutz-Art (0x7B) wie am Bedienteil, Übernahme erst nach Quittung des Lüftergeräts
+  - platform: template
+    name: "Frostschutz-Art setzen"
+    icon: mdi:snowflake-thermometer
+    update_interval: 5s
+    options:
+      - "eco"
+      - "sicher"
+      - "Feuchte-WT"
+    lambda: |-
+      if (!id(frostschutz_art).has_state())
+        return {};
+      const std::string &s = id(frostschutz_art).state;
+      if (s.rfind("Code", 0) == 0)
+        return {};
+      return s;
+    set_action:
+      - lambda: |-
+          static const char *const NAMES[] = {"eco", "sicher", "Feuchte-WT"};
+          for (uint8_t i = 0; i < 3; i++) {
+            if (x == NAMES[i]) {
+              id(kwl_bus).send_frost_mode(i);
+              return;
+            }
+          }
+
 # Einstellwerte. Zeigen den Wert vom Bus, senden nur bei Eingabe. Kein Gerät meldet Einstellwerte
 # zurück (auch nicht bei Änderung am Bedienteil). Ergebnis in "Letztes Senden": "angenommen
 # (Lüftergerät)" = das Lüftergerät hat den Empfang quittiert (86/87), erst dann übernimmt der
@@ -108,6 +134,40 @@ number:
       return v;
     set_action:
       - lambda: id(kwl_bus).send_boost_duration(x);
+
+  # Leistung Stufe 1 und 3 wie am Bedienteil: 17..100 % in 1-%-Schritten (Stufe 2 ist fest 60 %)
+  - platform: template
+    name: "Stufe 1 Leistung setzen"
+    icon: mdi:fan-speed-1
+    unit_of_measurement: "%"
+    min_value: 17
+    max_value: 100
+    step: 1
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(stufe1_leistung).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_stage_percent(1, x);
+  - platform: template
+    name: "Stufe 3 Leistung setzen"
+    icon: mdi:fan-speed-3
+    unit_of_measurement: "%"
+    min_value: 17
+    max_value: 100
+    step: 1
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(stufe3_leistung).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_stage_percent(3, x);
 
 # Wochenprogramm setzen: je Tag oder als Gruppe Mo-Fr bzw. Sa-So (alle Tage der Gruppe gleich).
 # Format wie in der Anzeige: "00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1", Zeiten in Viertelstunden,
@@ -236,10 +296,11 @@ ota:
     password: !secret ota_password
 
 # Webserver mit Login, sonst ließen sich "Senden aktiv" und die Einstellungen ohne
-# Anmeldung bedienen.
+# Anmeldung bedienen. Digest: das Passwort geht nicht im Klartext übers Netz (Inhalt schon).
 web_server:
   port: 80
   auth:
+    type: digest
     username: admin
     password: !secret kwl_web_password
 
@@ -289,6 +350,13 @@ climos:
   # kein Sendefenster / gesperrt / ungültig
   send_status:
     name: "Letztes Senden"
+  # Frostschutz-Art: eco / sicher / Feuchte-WT (im Flash gehalten)
+  frost_mode:
+    id: frostschutz_art
+    name: "Frostschutz-Art"
+  # Datum und Uhrzeit der Anlage aus dem Zeit-Frame des Masters (alle 5 s), z.B. "Mi 25.11.2026 20:34"
+  panel_clock:
+    name: "Uhr der Anlage"
   # Zuordnung abgeleitet aus Wärmerückgewinnung (~80 %) bei geschlossenem Bypass
   temperature_81:
     id: t_zuluft
@@ -357,6 +425,7 @@ climos:
     name: "Sommerlüftung Hysterese"
     state_topic: kwl/sensor/sommerlueftung_hysterese/state
   summer_enabled:
+    id: sommer_frei
     name: "Sommerlüftung freigegeben"
     state_topic: kwl/binary_sensor/sommerlueftung_freigegeben/state
   # 0 = keine Störung
@@ -364,10 +433,12 @@ climos:
     name: "Fehlercode"
   # Nur im Komplett-Abzug oder bei Änderung am Bedienteil
   stage_1_percent:
+    id: stufe1_leistung
     name: "Stufe 1 Leistung"
   stage_2_percent:
     name: "Stufe 2 Leistung"
   stage_3_percent:
+    id: stufe3_leistung
     name: "Stufe 3 Leistung"
   boost_duration:
     id: dauer_stoss
@@ -432,6 +503,20 @@ sensor:
         return NAN;
       return (zu - au) / (ab - au) * 100.0f;
 
+  # Abweichung der Uhr der Anlage von der NTP-Zeit (positiv = Anlage geht vor)
+  - platform: template
+    name: "Uhr der Anlage Abweichung"
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    icon: mdi:clock-alert-outline
+    entity_category: diagnostic
+    update_interval: 60s
+    lambda: |-
+      const int32_t dev = id(kwl_bus).panel_clock_deviation(id(sntp_time).now());
+      if (dev == INT32_MAX)
+        return NAN;
+      return dev;
+
 # Not-Aus für das Senden: standardmäßig an, Zustand bleibt über Neustarts erhalten.
 # Ausschalten stoppt jedes Senden sofort (auch vorgemerkte Frames und Wiederholungen).
 switch:
@@ -445,6 +530,23 @@ switch:
       - lambda: id(kwl_bus).set_write_enabled(true);
     turn_off_action:
       - lambda: id(kwl_bus).set_write_enabled(false);
+
+  # Sommerlüftung freigeben/sperren (0x1B Bit 7, übrige Bits bleiben). Zeigt den Wert vom Bus, sendet nur
+  # beim Schalten, beim Start nie (restore_mode DISABLED). Übernahme erst nach Quittung des Lüftergeräts.
+  - platform: template
+    name: "Sommerlüftung freigeben"
+    state_topic: kwl/switch/sommerlueftung_freigeben/state
+    command_topic: kwl/switch/sommerlueftung_freigeben/command
+    icon: mdi:weather-sunny
+    restore_mode: DISABLED
+    lambda: |-
+      if (!id(sommer_frei).has_state())
+        return {};
+      return id(sommer_frei).state;
+    turn_on_action:
+      - lambda: id(kwl_bus).send_summer_enabled(true);
+    turn_off_action:
+      - lambda: id(kwl_bus).send_summer_enabled(false);
 
 # Anlage ein-/ausschalten wie am Bedienteil. Bewusst Knöpfe statt Schalter: ein Schalter könnte beim
 # Neustart des ESP seinen Zustand wiederherstellen und dabei senden. Zustand zeigt "Anlage an".
@@ -463,3 +565,27 @@ button:
     icon: mdi:power-plug-off
     on_press:
       - lambda: id(kwl_bus).send_system_power(false);
+
+  # Datum und Uhrzeit der Anlage auf die NTP-Zeit stellen (zwei Frames: 0x01 Datum, 0x02 Uhrzeit)
+  - platform: template
+    name: "Uhr der Anlage stellen"
+    icon: mdi:clock-edit-outline
+    on_press:
+      - lambda: id(kwl_bus).send_clock(id(sntp_time).now());
+
+# NTP-Zeit. Täglich um 03:30 die Uhr der Anlage stellen, wenn sie mehr als 60 s abweicht
+# (auch nach der Zeitumstellung).
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: Europe/Berlin
+    on_time:
+      - seconds: 0
+        minutes: 30
+        hours: 3
+        then:
+          - lambda: |-
+              const ESPTime now = id(sntp_time).now();
+              const int32_t dev = id(kwl_bus).panel_clock_deviation(now);
+              if (dev != INT32_MAX && std::abs(dev) > 60)
+                id(kwl_bus).send_clock(now);

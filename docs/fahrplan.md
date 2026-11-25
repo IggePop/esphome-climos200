@@ -103,10 +103,11 @@ lässt sich für neue Werte selbst berechnen (an diesen Frames geprüft).
 | ------------------------------------------- | -------------------------------------------------- |
 | Betriebsart                                 | Frames bekannt                                     |
 | t_som                                       | Frame bekannt                                      |
-| Andere Einstellwerte (Stufen-%, Stoßdauer)  | wahrscheinlich gleicher Weg, erst mitschneiden     |
+| Stufen-%, Stoßdauer, Frostschutz-Art, 0x1B  | gebaut und getestet (Quittung 08)                  |
 | Wochenprogramm                              | Frames bekannt, 4 Frames über mehrere Fenster      |
 | Anlage an/aus                               | Frames bekannt, löst Neuanmeldung aller Geräte aus |
-| Filter-Reset, Uhrzeit                       | unklar, erst mitschneiden, mit Vorsicht            |
+| Datum/Uhrzeit                               | gebaut und getestet (Echo des Masters, kein 87)    |
+| Filter-Reset, Laufzeit Abwesend (0x3C)      | unklar, erst mitschneiden, mit Vorsicht            |
 | Zähler, Temperaturen, Versionen             | nicht sinnvoll                                     |
 
 ## Phase 0: Beobachten (ohne Risiko)
@@ -263,6 +264,54 @@ machen zu müssen.
         04 und 08 im 1. Versuch. **Bedienteil zeigt den neuen Wert** (vom User bestätigt), Di/Do unverändert
       - **Einzelner Tag am Bedienteil:** Es sendet genau dasselbe Frame (gleiche CRC `9C 5D`): nur die 3 Register
         des Tags, danach `28 00 06`. Format damit bestätigt
+
+- [x] Mitschnitt weitere Einstellungen am Bedienteil (2026-11-25, 20:34-20:36, nur ESP-Log):
+      - **Datum 0x01** (4 Byte) `[Wochentag][Tag][Monat][Jahr]`, Wochentag 0 = Montag. Bedienteil `01 00 03 19 0B 1A`,
+        Master-Echo `00 00 85 06 A1 0E 01 00 02 19 0B 1A`, dann `01 00 02 19 0B 1A` (Mi 25.11.26)
+      - **Uhrzeit 0x02** (3 Byte) `[Sekunde][Minute][Stunde]`: `02 00 1B 22 13` -> `02 00 1B 22 14` (19:34 -> 20:34).
+        Fehlt noch in OBJECT_LENGTHS. Danach schaltete das Wochenprogramm auf Stufe 1 (Uhr ging 1 h nach)
+      - **Sprache 0x06** (1 Byte): Werte 0..11 schrittweise hoch und zurück auf 0 (vom User bestätigt: Sprache).
+        0 ist die eingestellte Sprache (Deutsch). Welche Zahl welche Sprache ist, ist nicht erfasst
+      - **Sommerlüftung freigegeben** allein über 0x1B: `1B 00 73 00` (Bit 7 aus) / `1B 00 F3 00` (an)
+      - t_som auf 25,0 °C gestellt (`1B 00 F3 00 41 00 FA 00`, gleiches Frame wie unseres), bleibt so (gewollt)
+      - Stufen-Leistung im ersten Log nicht enthalten, im zweiten Log (20:41) erfasst, siehe unten
+- [x] Mitschnitt Stufen-Leistung und Frostschutz am Bedienteil (2026-11-25, 20:41, nur ESP-Log):
+      - **Stufe 1 = 0x2E** (1 Byte, Prozent): `01 00 85 03 32 4A 2E 00 2D` (45 %), zurück `2E 00 28` (40 %).
+        Stufe 2 lässt sich am Bedienteil nicht verstellen (fix, laut User)
+      - **0x62 = Vorschau beim Einstellen der Stufen:** `62 00 0B` -> Lüftergerät fährt Stufe 1 (`27 00 01`),
+        `62 00 0D` -> Stufe 3 (`27 00 03`), `62 00 00` -> zurück in den Normalbetrieb. 0C vermutlich Stufe 2.
+        Erklärt auch `62 00 00` vor anderen Änderungen (Vorschau beenden beim Öffnen eines Menüs)
+      - Stufe 3 im ersten Versuch ohne Frame (Wert vermutlich nicht geändert), im zweiten Log (20:45) erfasst:
+      - **Stufe 3 = 0x30** (1 Byte, Prozent): `30 00 51` (81 %), `52`, `64` (100 %), zurück `50` (80 %).
+        Schritt 1 %, beim Halten der Taste kommen nur einzelne Zwischenwerte. Max. 100 % (laut User)
+      - **Live-Vorschau:** Während `62 00 0D` sendet das Bedienteil den Wert zusätzlich zusammen mit der Vorschau
+        (`01 00 85 06 .. .. 30 00 xx 62 00 0D`). Das Lüftergerät fährt sofort mit dem neuen Wert (deutlich lauter
+        bei 100 %, laut User)
+      - Endstand wie vorher: Stufe 1 = 40 %, Stufe 3 = 80 %. Stufe 2 fest, laut Komplett-Abzug 60 % (`2F 00 3C`)
+      - **Grenzen am Bedienteil (laut User):** Stufe 1 und Stufe 3 je 17..100 % in 1-%-Schritten,
+        Stufe 2 fest auf 60 % (nicht einstellbar)
+      - **Frostschutz 0x7B** (1 Byte, Auswahl 0..2): `7B 00 01`, `00`, `01`, `02` (Ausgangswert 2, so auch im
+        Komplett-Abzug). **0 = eco, 1 = sicher, 2 = Feuchte-WT** (User-Ablauf: Feuchte-WT -> sicher -> eco ->
+        Feuchte-WT, das zweite 01 beim Zurückblättern über sicher). Gleiche Reihenfolge wie bei 0x4A..0x4C
+- [x] Umgesetzt und am Bus getestet (2026-11-25, 21:26-21:41):
+      - **Stufe 1/3 Leistung** (number 17..100): `2E 00 28` von 04, dann 08 quittiert, Bedienteil zeigt den Wert
+      - **Sommerlüftung freigeben** (switch, nur Bit 7 von 0x1B): `1B 00 73 00` sofort von 08 quittiert,
+        `1B 00 F3 00` erst im 3. Versuch (Versuch 1 und 2 nur 04). Daher Einstellwerte jetzt bis zu 5 Versuche
+      - **Frostschutz-Art** (select, 0x7B): funktioniert, Bedienteil zeigt den Wert. Eigener Flash-Speicher
+        (`climos_settings_extra`), der bestehende Speicher blieb unverändert
+      - **Uhr der Anlage** (text_sensor aus dem Zeit-Frame, Abweichung zu NTP als Sensor): vorher -23 s
+      - **Uhr stellen** (Knopf + täglich 03:30 bei > 60 s): Datum `01 00 85 06 50 17 01 00 03 19 0B 1A`
+        (byte-gleich mit dem Bedienteil) bekommt **keine 86/87-Quittung**. Der Master übernimmt es selbst und
+        sendet das Echo `00 00 85 06 A1 0E 01 00 02 19 0B 1A` (Wochentag von ihm auf 02 gesetzt). Erster Versuch
+        scheiterte deshalb (3 x "keine Bestätigung"). Jetzt Bestätigung über das Echo bzw. den nächsten Zeit-Frame
+        (Uhrzeit ±10 s). Uhrzeit-Frame wird direkt vor dem Senden aktualisiert (`1B` -> `27` Sekunden).
+        Ergebnis: übernommen nach 0,9 s, Abweichung danach -1 s
+      - Nach jedem Senden des Datums kommt `01 00 85 00` (leeres Daten-Frame, Absender offen)
+- [x] ioBroker mqtt.0 "publishOnSubscribe" war an: der Broker schickte beim Abonnieren leere Befehle
+      (9 x leerer Wochenprogramm-Text nach dem Neustart, abgelehnt). Gefahr: ein einmal über ioBroker gesetzter
+      Befehl wäre nach jedem Neustart erneut gesendet worden. Vom User abgeschaltet (2026-11-25). Leerer Text
+      wird zusätzlich still ignoriert
+- [x] Webserver auf `auth: type: digest` umgestellt (ab ESPHome 2027.1 Standard), capture.py kann Digest
 
 ## Test: Prüfen die Geräte das 9. Bit?
 

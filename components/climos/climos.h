@@ -8,6 +8,7 @@
 #include "esphome/core/gpio.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/preferences.h"
+#include "esphome/core/time.h"
 
 #include "bit_decoder.h"
 #include "bus_sender.h"
@@ -73,6 +74,17 @@ class Climos : public Component, public uart::UARTDevice {
   // bekommen dasselbe Programm. Text wie in der Anzeige, z.B. "00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1".
   // Frames nacheinander (höchstens 6 Register je Frame), jedes muss vom Lüftergerät quittiert sein.
   bool send_schedule(uint8_t day_mask, const std::string &text);
+  // Leistung von Stufe 1 oder 3 setzen (0x2E / 0x30), 17..100 % in 1-%-Schritten wie am Bedienteil
+  bool send_stage_percent(uint8_t stage, float percent);
+  // Frostschutz-Art setzen (0x7B): 0 = eco, 1 = sicher, 2 = Feuchte-WT
+  bool send_frost_mode(uint8_t mode);
+  // Sommerlüftung freigeben/sperren: 0x1B mit aktuellem Wert und geändertem Bit 7 (braucht 0x1B)
+  bool send_summer_enabled(bool enabled);
+  // Datum und Uhrzeit des Bedienteils stellen (0x01, 0x02), Uhrzeit wird direkt vor dem Senden aktualisiert
+  bool send_clock(const ESPTime &now);
+  // Abweichung der Uhr der Anlage (aus dem Zeit-Frame des Masters) von now in Sekunden,
+  // INT32_MAX wenn unbekannt, 86400 wenn das Datum abweicht
+  int32_t panel_clock_deviation(const ESPTime &now) const;
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -109,6 +121,8 @@ class Climos : public Component, public uart::UARTDevice {
   void set_summer_enabled_binary_sensor(binary_sensor::BinarySensor *sensor) { summer_enabled_binary_sensor_ = sensor; }
   // Zustand der letzten Umschaltung (vorgemerkt, gesendet, bestätigt, keine Bestätigung, ...)
   void set_send_status_text_sensor(text_sensor::TextSensor *sensor) { send_status_text_sensor_ = sensor; }
+  void set_frost_mode_text_sensor(text_sensor::TextSensor *sensor) { frost_mode_text_sensor_ = sensor; }
+  void set_panel_clock_text_sensor(text_sensor::TextSensor *sensor) { panel_clock_text_sensor_ = sensor; }
 
  protected:
   bool try_parse_frame_();
@@ -140,7 +154,10 @@ class Climos : public Component, public uart::UARTDevice {
   // ACK:  Lüftergerät quittiert unser Frame (87 mit unserer CRC nach 86 an 08) -> "angenommen",
   //       die gesendeten Werte werden übernommen. Quittung nur vom Bedienteil zählt nicht.
   // SYSTEM: Anlage an/aus, bestätigt über 0x08 oder das Master-Echo von 0x07; nur ein Versuch, 20 s Frist
-  enum ConfirmKind : uint8_t { CONFIRM_NONE, CONFIRM_MODE, CONFIRM_ACK, CONFIRM_SYSTEM };
+  // ECHO: Datum/Uhrzeit, der Master übernimmt sie selbst und wiederholt sie (erstes Byte 00, Echo oder
+  //       Zeit-Frame alle 5 s); 86/87 gibt es dafür nicht. Quittung von 08 zählt auch.
+  enum ConfirmKind : uint8_t { CONFIRM_NONE, CONFIRM_MODE, CONFIRM_ACK, CONFIRM_SYSTEM, CONFIRM_ECHO };
+  void check_echo_confirm_(uint16_t id, const uint8_t *value);
   bool queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label,
                       bool keep_sequence = false);
   void confirm_success_(ConfirmKind kind, const char *how);
@@ -185,6 +202,29 @@ class Climos : public Component, public uart::UARTDevice {
   size_t seq_index_{0};
   bool seq_active_{false};
   std::string seq_label_;
+  // Frostschutz-Art und Uhr der Anlage
+  text_sensor::TextSensor *frost_mode_text_sensor_{nullptr};
+  text_sensor::TextSensor *panel_clock_text_sensor_{nullptr};
+  uint8_t panel_date_[4]{};  // Wochentag (0 = Mo), Tag, Monat, Jahr (2-stellig)
+  uint8_t panel_time_[3]{};  // Sekunde, Minute, Stunde
+  bool has_panel_date_{false};
+  bool has_panel_time_{false};
+  uint32_t panel_time_ms_{0};  // millis() beim Empfang von 0x02
+  void publish_panel_clock_();
+  // Uhr stellen: Bezugszeit beim Vormerken, damit das Uhrzeit-Frame vor dem Senden aktualisiert werden kann
+  bool clock_sync_active_{false};
+  uint32_t clock_base_seconds_{0};  // Sekunden seit Mitternacht
+  uint32_t clock_base_ms_{0};
+  void refresh_pending_clock_();
+  // Zusätzlich gespeicherte Werte (eigener Speicher, damit der bestehende nicht neu angelegt werden muss)
+  struct ExtraStore {
+    uint32_t valid;
+    uint8_t data[8];
+  };
+  ESPPreferenceObject extra_pref_;
+  ExtraStore extra_{};
+  void setup_extra_settings_();
+  bool remember_extra_setting_(uint16_t id, const uint8_t *value, uint8_t length);
   // Erstes Byte des gerade verarbeiteten Frames (00 = Echo des Masters)
   uint8_t frame_first_byte_{0};
   // An wen ging das letzte 86 (Bestätigung anfordern)? Die folgende 87 kommt von diesem Gerät.

@@ -57,6 +57,9 @@ CONF_SW_SLAVE = "sw_slave"
 CONF_SW_TFT = "sw_tft"
 # Zustand der letzten Umschaltung (vorgemerkt / gesendet / bestätigt / keine Bestätigung / gesperrt)
 CONF_SEND_STATUS = "send_status"
+# Frostschutz-Art (0x7B) und Uhr der Anlage (0x01/0x02 aus dem Zeit-Frame)
+CONF_FROST_MODE = "frost_mode"
+CONF_PANEL_CLOCK = "panel_clock"
 
 FILTER_DAYS_SCHEMA = sensor.sensor_schema(
     unit_of_measurement=UNIT_DAYS,
@@ -117,6 +120,8 @@ TEXT_SENSOR_KEYS = (
     CONF_SW_SLAVE,
     CONF_SW_TFT,
     CONF_SEND_STATUS,
+    CONF_FROST_MODE,
+    CONF_PANEL_CLOCK,
 )
 
 OPERATING_HOURS_SCHEMA = sensor.sensor_schema(
@@ -191,9 +196,11 @@ CONFIG_SCHEMA = cv.Schema(
         **{
             cv.Optional(key): DIAGNOSTIC_TEXT_SCHEMA
             for key in TEXT_SENSOR_KEYS
-            if key not in (CONF_OPERATING_MODE, CONF_FAN_STAGE, CONF_SEND_STATUS)
+            if key not in (CONF_OPERATING_MODE, CONF_FAN_STAGE, CONF_SEND_STATUS, CONF_FROST_MODE, CONF_PANEL_CLOCK)
         },
         cv.Optional(CONF_SEND_STATUS): text_sensor.text_sensor_schema(icon="mdi:send-check"),
+        cv.Optional(CONF_FROST_MODE): text_sensor.text_sensor_schema(icon="mdi:snowflake-thermometer"),
+        cv.Optional(CONF_PANEL_CLOCK): text_sensor.text_sensor_schema(icon="mdi:clock-outline"),
         cv.Optional(CONF_OPERATING_HOURS): OPERATING_HOURS_SCHEMA,
         cv.Optional(CONF_FAN_OPERATING_HOURS): OPERATING_HOURS_SCHEMA,
         cv.Optional(CONF_STATUS_1A): sensor.sensor_schema(

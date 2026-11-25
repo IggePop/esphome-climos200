@@ -57,7 +57,7 @@ Geräteblöcke: Adresse a hat ab Register `0x0D + 3·(a−4)` drei Register
 | `87` | Bestätigung, enthält die CRC des bestätigten Frames |
 | `80` / `81` | Anmeldung |
 | `83` | Komplett-Abzug anfordern |
-| `00` | Uhrzeit (etwa alle 5 s) |
+| `00` | Zeit-Frame mit Datum und Uhrzeit (etwa alle 5 s) |
 
 ## Ablauf am Bus
 
@@ -125,6 +125,45 @@ Frame wie vom Bedienteil, `0x1B` (Freigaben) wird immer mit dem aktuellen Wert m
 - Der Abschluss-Frame `62 00 00`, den das Bedienteil 15 s nach einer eigenen Änderung schickt, war nicht nötig.
 - Ob das Lüftergerät die neue Schwelle nutzt, ist noch offen. Das zeigt sich erst im Sommerbetrieb.
 
+## Weitere Einstellwerte (0x2E, 0x30, 0x7B, 0x1B Bit 7, 0x3B)
+
+Einzeln gesendet wie vom Bedienteil, jedes Frame quittiert das Lüftergerät (`86`/`87`):
+
+```
+01 00 85 03 .. .. 2E 00 28         Leistung Stufe 1 = 40 % (17–100 %, Schritt 1)
+01 00 85 03 .. .. 30 00 50         Leistung Stufe 3 = 80 % (17–100 %), Stufe 2 (0x2F) ist fest 60 %
+01 00 85 03 .. .. 7B 00 02         Frostschutz-Art: 0 eco, 1 sicher, 2 Feuchte-WT
+01 00 85 04 46 01 1B 00 73 00      Sommerlüftung gesperrt (0x1B Bit 7 = 0)
+01 00 85 04 DE 1A 1B 00 F3 00      Sommerlüftung freigegeben (Bit 7 = 1), übrige Bits unverändert lassen
+01 00 85 03 .. .. 3B 00 2D         Dauer Stoßlüftung = 45 min (15–120, Schritt 5)
+```
+
+- Beim Einstellen der Stufen schickt das Bedienteil zusätzlich `62 00 0B` / `62 00 0D` (Vorschau Stufe 1/3)
+  und zum Schluss `62 00 00`. Nötig ist das nicht, das Lüftergerät übernimmt den Wert auch ohne.
+- Die Quittung fragt der Master bei Frames im Fenster oft nur beim Bedienteil ab (einmal erst im
+  3. Versuch beim Lüftergerät). Die Komponente wiederholt deshalb bis zu 5-mal.
+
+## Datum und Uhrzeit (Objekte 0x01, 0x02)
+
+```
+00 00 00 0E .. .. 01 00 02 19 0B 1A 02 00 1B 28 15 04 00 00   Zeit-Frame des Masters (alle 5 s)
+                  └ Datum: [Wochentag 0 = Mo][Tag][Monat][Jahr]
+                                      └ Uhrzeit: [Sekunde][Minute][Stunde]
+```
+
+Stellen wie das Bedienteil, Datum und Uhrzeit in zwei Frames:
+
+```
+01 00 85 06 50 17 01 00 03 19 0B 1A    Datum Mi 25.11.26 (Bedienteil schickt Wochentag 03)
+00 00 85 06 A1 0E 01 00 02 19 0B 1A    Echo des Masters, Wochentag selbst bestimmt (02 = Mi)
+01 00 85 05 .. .. 02 00 27 28 15       Uhrzeit 21:40:39
+```
+
+- Für Datum und Uhrzeit gibt es **keine Quittung** über `86`/`87`. Der Master übernimmt sie selbst und
+  bestätigt das Datum mit seinem Echo (erstes Byte `00`), die Uhrzeit mit dem nächsten Zeit-Frame.
+- Den Wochentag im gesendeten Frame ignoriert der Master offenbar, er setzt ihn aus dem Datum.
+- `0x04` (1 Byte) steht im Zeit-Frame, Bedeutung offen. `0x06` (1 Byte) ist die Sprache (0 = Deutsch, bis 11).
+
 ## Wochenprogramm (Objekte 0x64–0x78)
 
 Je Tag 3 Register zu 8 Byte: 00–08, 08–16 und 16–24 Uhr. Register `0x64 + 3·Tag + n`, Tag 0 = Montag.
@@ -168,6 +207,9 @@ Ein Tag (z. B. Mittwoch):
 
 | ID | Länge | Bedeutung |
 |---|---|---|
+| `0x01` | 4 | Datum `[Wochentag 0 = Mo][Tag][Monat][Jahr]` |
+| `0x02` | 3 | Uhrzeit `[Sekunde][Minute][Stunde]` |
+| `0x06` | 1 | Sprache (0 = Deutsch) |
 | `0x07` | 1 | Anlage an/aus (vom Bedienteil gesendet) |
 | `0x08` | 1 | Anlage an |
 | `0x0A`–`0x0C` | 16/4/3 | Letzte Meldung: Code, Datum, Uhrzeit |
@@ -178,7 +220,7 @@ Ein Tag (z. B. Mittwoch):
 | `0x27` | 1 | Gefahrene Lüfterstufe (in Automatik die vom Programm gewählte) |
 | `0x28` | 1 | Betriebsart |
 | `0x29` | 1 | Rückfall-Betriebsart nach Stoßlüftung |
-| `0x2E`–`0x30` | 1 | Leistung Stufe 1–3 in % |
+| `0x2E`–`0x30` | 1 | Leistung Stufe 1–3 in % (Stufe 2 fest 60 %) |
 | `0x31`–`0x33` | 1 | Disbalance Stufe 1–3 in % (vorzeichenbehaftet) |
 | `0x3B` | 1 | Dauer Stoßlüftung (min) |
 | `0x3C` | 1 | Laufzeit pro Stunde bei Abwesend (min) |
@@ -189,7 +231,9 @@ Ein Tag (z. B. Mittwoch):
 | `0x49` | 2 | Minimale Außenlufttemperatur Sommerlüftung (0,1 °C) |
 | `0x4A`–`0x4C` | 2 | Frostschutz-Schwellen (0,1 °C, Reihenfolge vermutet: eco, sicher, Feuchte-WT) |
 | `0x55` | 2 | Stellwert 0-10-V-Eingang (0,1 %) |
+| `0x62` | 1 | Vorschau beim Einstellen: `0B` Stufe 1, `0D` Stufe 3, `00` fertig |
 | `0x64`–`0x78` | 8 | Wochenprogramm: 3 Register je Tag (00–08, 08–16, 16–24 Uhr), 2 Bit je Viertelstunde |
+| `0x7B` | 1 | Frostschutz-Art: 0 eco, 1 sicher, 2 Feuchte-WT |
 | `0x81`–`0x84` | 2 | Temperaturen Zuluft, Außenluft, Abluft, Fortluft (0,1 °C) |
 | `0x85` | 5 | Betriebszeit Lüfter |
 
