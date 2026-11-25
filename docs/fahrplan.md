@@ -47,7 +47,8 @@ Aus den eigenen Logs abgeleitet, am Bus noch nicht getestet:
   Vermutung: zweites Bedienteil = Adresse 05 mit Registern 0x10/0x11.
 - **Ablauf am Bus:** Das gepollte Gerät antwortet selbst mit seinem Status-Frame.
   `86` fordert eine Bestätigung an, `87` enthält die CRC des bestätigten Frames.
-- **9. Bit senden:** Der ESP32-UART kann das nicht lückenlos, deshalb RMT.
+- **9. Bit senden:** Der ESP32-UART kann das nicht lückenlos, deshalb RMT. Die Geräte prüfen das 9. Bit
+  (Test 2026-11-25, siehe „Test: Prüfen die Geräte das 9. Bit?“), ohne geht es nicht.
 
 ## Betriebsart-Frames
 
@@ -238,24 +239,6 @@ machen zu müssen.
 - [x] Dauer Stoßlüftung setzen: `number` „Dauer Stoßlüftung setzen“ (15..120, Schritt 5), Frame gegen Mitschnitt
       geprüft. Am Bus getestet (2026-11-25): funktioniert, Bedienteil übernimmt den Wert (vom User bestätigt)
 
-## Test: Braucht der Bus das 9. Bit? (offen)
-
-Frage: Prüfen die Geräte beim Empfang das 9. Bit (gesetzt auf Byte 0 und 1) und dulden sie eine Lücke im
-Frame? Falls nicht, könnten auch USB- oder Ethernet-RS485-Adapter mit 8S1/8M1 senden (Timing im Fenster
-nach `FF` reicht dafür, etwa 130 ms Spielraum). Wichtig für Nachbauten ohne ESP.
-
-- [ ] Komponente: Anzahl der Bytes mit 9. Bit für Testframes einstellbar machen (heute fest 2)
-- [ ] Harmloses Frame senden (laufende Betriebsart, ändert nichts), jeweils mehrmals:
-  - [ ] 9. Bit nur auf Byte 0
-  - [ ] ohne 9. Bit
-  - [ ] 9. Bit auf allen Bytes
-- [ ] Kriterium: Master quittiert (86/87 mit unserer CRC) und Lüftergerät meldet 29 wie gewohnt, Bus bleibt
-      fehlerfrei (Debug-Empfänger und ESP-Statistik)
-- [ ] Optional: Lücke nach Byte 1 (einige ms, wie bei Paritätswechsel per tcsetattr) und prüfen, ob das Frame
-      noch angenommen wird
-- Risiko gering: Frames werden im Fenster gesendet. Wird ein Frame verworfen, passiert nichts. Im schlimmsten
-  Fall stört ein falsch erkanntes Frame kurz den Bus, dann "Senden aktiv" aus.
-
 - [x] Anlage an/aus (2026-11-25): Knöpfe „Anlage einschalten“/„Anlage ausschalten“, Frames wie vom Bedienteil
       (`07 00 00` bzw. `07 00 01 0E 00 00`), Bestätigung über 0x08 oder Master-Echo, keine Wiederholung
       - **Aus und Ein wirken.** Nach Ein über den ESP derselbe Ablauf wie nach Ein am Bedienteil: Neuanmeldung
@@ -287,6 +270,9 @@ auch mit einem Adapter im Modus 8S1 (alle Bytes 9. Bit = 0).
 - [x] **Ergebnis: Das 9. Bit wird geprüft, auf Byte 0 und Byte 1.** Ein UART mit fester Parität (8S1/8M1)
       kann damit nicht senden, USB- und Ethernet-Adapter scheiden aus. Lückentest entfällt.
       Interpretation: 9. Bit auf Byte 0 = Frame-Anfang, auf Byte 1 = Adressbyte (Ziel)
+      Das entspricht dem üblichen 9-Bit-Adressmodus (Multidrop) und ist RS485-konform: RS485 legt nur die
+      elektrische Seite fest, nicht das Zeichenformat. Ungewöhnlich ist nur, dass zwei Bytes markiert sind
+- [ ] Nicht getestet: 9. Bit auf allen Bytes. Für die Praxis ohne Bedeutung
 - [x] Testknöpfe aus kwl.yaml entfernt (2026-11-25), send_marking_test() aus der Komponente entfernt
 
 ## Phase 4: ESP als zweites Bedienteil (optional)
