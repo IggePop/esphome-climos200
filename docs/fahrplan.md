@@ -326,6 +326,14 @@ machen zu müssen.
       danach 0x28/0x29 neu und 0x09 nach 25 s zurück auf `00`. Intervall 30..180 Tage in 10er-Schritten.
       **0x3C** nur 15, 30, 45 min. Abweichungen dort: 9. Bit nur Byte 0 (wir: 0 und 1), Frames mit erstem Byte 00
       als Störung "repariert", 87 als ungeklärt (14 % CRC-Treffer, vermutlich wegen verlorener Frames), 0x27 = 0x28
+- [ ] **Lüfter aus beim Komplett-Abzug: auch beim Original-Bedienteil?** (User prüft am 2026-11-26)
+      Im Abzug nach `83` steht `08 00 00` (Anlage an = 0), +1,07 s dann `08 00 01`, danach meldet sich das
+      Lüftergerät neu und 0x1A wechselt ~13 s zwischen `01` und `0D` (Lüfter aus). Vermutung: jeder Abzug wirkt
+      so, da der Master ihn erzeugt, also auch bei Anmeldung eines (zweiten) Bedienteils.
+      Test: Mitschnitt (Debug-Empfänger + ESP-Log), Bedienteil kurz abziehen und wieder anstecken. Prüfen:
+      kommt derselbe Abzug mit `08 00 00`, geht 0x1A auf `01`, geht der Lüfter hörbar aus?
+      Vorsicht: ohne Bedienteil fährt die Anlage laut Anleitung ein reduziertes Notprogramm, nur kurz abziehen.
+      Vermeidbar wäre es nur ohne Abzug (Werte im Flash wie jetzt, oder ein unbekannter Befehl für einzelne Register)
 - [ ] **Nächstes: Filter-Reset** — am Bedienteil einmal mitschneiden (Frame, Quittung, Reaktion von 0x09/0x3E),
       dann Knopf/Number "Filter-Reset" mit Intervall 30..180 Tage, Übernahme nach Quittung 08
 - [ ] Laufzeit Abwesend (0x3C) als select 15/30/45, nach kurzem Mitschnitt
