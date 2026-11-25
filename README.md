@@ -86,7 +86,9 @@ Komponente dann sofort.
    Dann einen **Broker mit Login** verwenden, denn über MQTT lässt sich die Betriebsart setzen.
    Der Broker darf beim Abonnieren keine gespeicherten Befehle nachsenden (ioBroker: „publishOnSubscribe“
    aus), sonst würde der ESP einen alten Befehl nach jedem Neustart erneut auf den Bus schicken.
-5. Der Webserver verlangt einen Login mit Digest-Verfahren.
+5. Der Webserver (Version 3) verlangt einen Login mit Digest-Verfahren und zeigt die Entitäten in Gruppen:
+   Betrieb, Temperaturen, Sommerlüftung, Einstellungen, Frostschutz, Filter, Wochenprogramm, Uhr, Diagnose.
+   Die Oberfläche lädt der Browser von `oi.esphome.io`; ohne Internet `local: true` setzen.
 
 Benötigt ESPHome mit ESP-IDF (getestet mit 2026.10/2026.11, IDF 5.5).
 
