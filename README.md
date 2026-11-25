@@ -20,19 +20,27 @@ Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerüc
 
 - **Betriebsart** (Stufe 1–3, Stoßlüftung, Abwesend, Automatik) über ein `select`. Erfolg gilt erst,
   wenn das Lüftergerät (`29 00 xx`) oder das Bedienteil (`28 00 xx`) den neuen Wert meldet.
-- **t_som** (Schwelle der Sommerlüftung) über eine `number`. Einstellwerte meldet kein Gerät zurück,
-  auch nicht bei Änderung am Bedienteil. Erfolg gilt daher, wenn das Lüftergerät den Empfang quittiert
-  (`86`/`87`, dieselbe Bestätigung, die das Bedienteil bekommt). Erst dann übernimmt der Sensor den Wert.
+- **Einstellwerte** über je eine `number`, Bereich und Schritt wie am Bedienteil:
+  - t_som (Schwelle der Sommerlüftung), 18–30 °C in 0,5er-Schritten
+  - Dauer der Stoßlüftung, 15–120 min in 5er-Schritten
 
-Für beides gilt:
+  Einstellwerte meldet kein Gerät zurück, auch nicht bei Änderung am Bedienteil. Erfolg gilt daher, wenn
+  das Lüftergerät den Empfang quittiert (`86`/`87`, dieselbe Bestätigung, die das Bedienteil bekommt).
+  Erst dann übernimmt der Sensor den Wert.
+
+Für alles gilt:
 
 - Gesendet wird nur im Fenster nach dem Broadcast-Poll `01 FF 84 00`, in dem kein anderes Gerät spricht.
 - Ohne Bestätigung bis zu zwei Wiederholungen. Ergebnis im Sensor „Letztes Senden“.
 - Schalter „Senden aktiv“ als Not-Aus.
 - Eine Anmeldung als Bedienteil ist nicht nötig.
 
-Geplant: weitere Einstellwerte (Stufen-Leistung, Stoßlüftungsdauer, …) und Wochenprogramm, siehe
+Geplant: weitere Einstellwerte (Stufen-Leistung, Laufzeit bei Abwesend, …) und Wochenprogramm, siehe
 [docs/fahrplan.md](docs/fahrplan.md).
+
+Warum ein ESP32 und kein USB- oder Ethernet-RS485-Adapter: Die Geräte prüfen das 9. Bit auf den ersten
+zwei Bytes jedes Frames (getestet). Ein UART mit fester Parität kann das nicht senden, der ESP32 erzeugt
+es mit dem RMT-Baustein. Details in [docs/protokoll.md](docs/protokoll.md).
 
 ## Hardware
 

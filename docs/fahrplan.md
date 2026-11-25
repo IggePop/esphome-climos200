@@ -235,8 +235,8 @@ machen zu müssen.
       - **Alle 11 Frames des Bedienteils quittiert das Lüftergerät (86 an 08)**, kein Wert-Echo
       - `62 00 00` kommt 4..15 s **vor** der Änderung (Menü geöffnet?), wird nicht quittiert
       - Nach Verlassen des Menüs sendet das Bedienteil die Betriebsart neu (`28 00 06`)
-- [ ] Dauer Stoßlüftung setzen: `number` „Dauer Stoßlüftung setzen“ (15..120, Schritt 5) gebaut und geflasht
-      (2026-11-25, Frame gegen Mitschnitt geprüft), am Bus noch nicht getestet
+- [x] Dauer Stoßlüftung setzen: `number` „Dauer Stoßlüftung setzen“ (15..120, Schritt 5), Frame gegen Mitschnitt
+      geprüft. Am Bus getestet (2026-11-25): funktioniert, Bedienteil übernimmt den Wert (vom User bestätigt)
 
 ## Test: Braucht der Bus das 9. Bit? (offen)
 
