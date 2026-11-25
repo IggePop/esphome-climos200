@@ -227,8 +227,11 @@ Ein Tag (z. B. Mittwoch):
 | `0x06` | 1 | Sprache (0 = Deutsch) |
 | `0x07` | 1 | Anlage an/aus (vom Bedienteil gesendet) |
 | `0x08` | 1 | Anlage an |
+| `0x09` | 16 | Aktuelle Meldung, z. B. `41` = Filter wechseln, Rest Leerzeichen¹ |
 | `0x0A`–`0x0C` | 16/4/3 | Letzte Meldung: Code, Datum, Uhrzeit |
 | `0x0E` | 1 | Fehlercode (0 = keine Störung) |
+| `0x1C` | 11 | Artikelnummer Defroster (Adresse 09), z. B. `ST00064E26E`¹ |
+| `0x1D` | 1 | Laufzustand: 1 Betrieb, 0 beim geordneten Abschalten, 3 kurz nach dem Start¹ |
 | `0x1A` | 1 | Status Lüftergerät: Bit 3 Fortluftventilator (bestätigt), Bit 5 Sommerlüftung läuft |
 | `0x1B` | 2 | Freigaben, Bit 7 = Sommerlüftung freigegeben |
 | `0x26` | 5 | Betriebszeit |
@@ -238,20 +241,50 @@ Ein Tag (z. B. Mittwoch):
 | `0x2E`–`0x30` | 1 | Leistung Stufe 1–3 in % (Stufe 2 fest 60 %) |
 | `0x31`–`0x33` | 1 | Disbalance Stufe 1–3 in % (vorzeichenbehaftet) |
 | `0x3B` | 1 | Dauer Stoßlüftung (min) |
-| `0x3C` | 1 | Laufzeit pro Stunde bei Abwesend (min) |
-| `0x3D` / `0x3E` | 5 | Filter-Intervall / Filter-Restlaufzeit |
+| `0x3C` | 1 | Laufzeit pro Stunde bei Abwesend (min): 15, 30 oder 45¹ |
+| `0x3D` / `0x3E` | 5 | Filter-Intervall / Filter-Restlaufzeit. Bleibt bei 0 stehen, Filter-Reset setzt beide¹ |
 | `0x41` | 2 | t_som, Schwelle Sommerlüftung (0,1 °C) |
 | `0x43` | 1 | H_som, Hysterese Sommerlüftung (0,1 K) |
 | `0x44` | 1 | unbekannt, steigt nach dem Einschalten (Lüfterhochlauf?) |
 | `0x49` | 2 | Minimale Außenlufttemperatur Sommerlüftung (0,1 °C) |
 | `0x4A`–`0x4C` | 2 | Frostschutz-Schwellen (0,1 °C, Reihenfolge vermutet: eco, sicher, Feuchte-WT) |
+| `0x4D`–`0x50` | 1 | Kennlinie 0-10-V-Eingang: U_min (0,1 V), n_min %, U_max, n_max (17, 17, 100, 100)¹ |
+| `0x51`–`0x54` | 1 | Kennlinie 4-20-mA-Eingang: I_min, n_min, I_max, n_max¹ |
 | `0x55` | 2 | Stellwert 0-10-V-Eingang (0,1 %) |
 | `0x62` | 1 | Vorschau beim Einstellen: `0B` Stufe 1, `0D` Stufe 3, `00` fertig |
 | `0x64`–`0x78` | 8 | Wochenprogramm: 3 Register je Tag (00–08, 08–16, 16–24 Uhr), 2 Bit je Viertelstunde |
 | `0x7B` | 1 | Frostschutz-Art: 0 eco, 1 sicher, 2 Feuchte-WT |
 | `0x81`–`0x84` | 2 | Temperaturen Zuluft, Außenluft, Abluft, Fortluft (0,1 °C) |
 | `0x85` | 5 | Betriebszeit Lüfter |
+| `0x88` / `0x8B` | 16 | Typbyte + Name: `c2` „Fan controller“, `c7` „Touch TFT 1“¹ |
+| `0x89` / `0x8C`, `0x8A` / `0x8D` | 4 / 3 | Datum und Uhrzeit je Gerät im Format von 0x01/0x02 (z. B. `06 02 02 19`, `21 26 14`), Bedeutung offen |
+
+¹ aus [chr-fritz/climos-exporter](https://github.com/chr-fritz/climos-exporter/blob/main/docs/protocol.md),
+an dieser Anlage noch nicht selbst geprüft.
 
 Zeitdauern (5 Byte): `[Minuten][Stunden][Tage lo][Tage hi][Jahre]`, Jahr = 365 Tage.
+
+## Abgleich mit climos-exporter
+
+[chr-fritz/climos-exporter](https://github.com/chr-fritz/climos-exporter) beschreibt dasselbe Gerät (CLIMOS F 200,
+Bus-Version 1.7.1, gleiche Artikelnummern von Bedienteil und Lüftergerät) aus reinem Mitlesen über einen
+USB-Adapter. Kern des Protokolls stimmt überein: Frame-Aufbau, CRC, Adressen, Record-Format, Temperaturen,
+Einstellwerte, Wochenprogramm. Abweichungen in der Deutung:
+
+| Thema | climos-exporter | hier |
+|---|---|---|
+| 9. Bit | nur auf dem ersten Byte | auf Byte 0 **und** 1 (gemessen und beim Senden geprüft) |
+| Erstes Byte `00` | Leitungsstörung (ohne Bias), wird zu `01` „repariert“ | echt: Zeit-Frame `00 00 00 0E …` und Echo des Masters `00 00 85 …` |
+| Befehl `00` (Zeit-Frame) | nicht beschrieben | alle 5 s, Datum 0x01, Uhrzeit 0x02, 0x04 |
+| `86`/`87` | ungeklärt, nur 14 % passen zur CRC des vorigen Frames | Zustellquittung mit der CRC des empfangenen Frames, für jedes eigene Frame bestätigt. Die 14 % dort erklären sich vermutlich durch verlorene Frames (ohne Reparatur 88 %) |
+| `0x27` | läuft mit 0x28 gleich, in Automatik 6 | gefahrene Lüfterstufe, in Automatik 1–3 nach Wochenprogramm (dort wird die Anlage über 0-10 V gesteuert) |
+| `0x08` | Ereignis, Werte 0/1/3 | Anlage an (1) / aus (0), Befehl dazu 0x07 |
+| `0x62` | bei Einstellungsänderung, Werte 11 und 12 | Vorschau der gerade eingestellten Stufe (`0B`/`0C`/`0D` = Stufe 1/2/3, `00` fertig) |
+| Master-Kennung | `SWZ0024B32B`, nicht am Bus | in 0x03 (`SWZ0024B32A` an dieser Anlage) |
+| Wochenprogramm | Bitreihenfolge und „aus“ offen | erste Viertelstunde in den unteren Bits, `00` = aus (durch Senden bestätigt) |
+| Schreiben | nicht versucht, Weg über ein zweites Bedienteil vorgeschlagen | im Fenster nach `01 FF 84 00` ohne Anmeldung, dazu `83` für den Komplett-Abzug |
+
+Dort zusätzlich beschrieben: Beim Neustart fragt der Master die Adressen 02–0C je zweimal ab, dann folgt der
+Komplett-Abzug. Ein geordnetes Abschalten zeigt sich an 0x08 = 0 und 0x1D = 0.
 
 Weitere Mitschnitte (t_som, Wochenprogramm, Anlage an/aus) stehen in [fahrplan.md](fahrplan.md).

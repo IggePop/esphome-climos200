@@ -107,7 +107,8 @@ lässt sich für neue Werte selbst berechnen (an diesen Frames geprüft).
 | Wochenprogramm                              | Frames bekannt, 4 Frames über mehrere Fenster      |
 | Anlage an/aus                               | Frames bekannt, löst Neuanmeldung aller Geräte aus |
 | Datum/Uhrzeit                               | gebaut und getestet (Echo des Masters, kein 87)    |
-| Filter-Reset, Laufzeit Abwesend (0x3C)      | unklar, erst mitschneiden, mit Vorsicht            |
+| Filter-Reset (0x3D + 0x3E)                  | NÄCHSTES: Frame laut climos-exporter bekannt, mitschneiden |
+| Laufzeit Abwesend (0x3C)                    | Werte 15/30/45 laut climos-exporter, mitschneiden  |
 | Zähler, Temperaturen, Versionen             | nicht sinnvoll                                     |
 
 ## Phase 0: Beobachten (ohne Risiko)
@@ -318,6 +319,17 @@ machen zu müssen.
       Keine Anmeldung (80/81) nötig. **Aber:** 0x1A wechselt `0D` -> `01` -> `0D` -> `01` -> `0D` (ca. 13 s
       Bit 2 und 3 aus), **der Lüfter geht dabei kurz aus** (laut User). Daher nicht automatisch nach jedem
       ESP-Start, nur von Hand. Flash-Speicher der Einstellwerte bleibt. 0x1A Bit 3 = Fortluftventilator bestätigt
+- [x] **Abgleich mit chr-fritz/climos-exporter** (docs/protocol.md, 2026-11-25), in protokoll.md übernommen:
+      gleiches Gerät, Kern gleich. Dort zusätzlich: 0x09 aktuelle Meldung (`41` = Filter wechseln), 0x1D Laufzustand,
+      0x1C Artikel Defroster, 0x4D..0x54 Kennlinien 0-10 V / 4-20 mA, 0x88/0x8B Gerätenamen, Neustart = Adress-Scan 02..0C.
+      **Filter-Reset** dort mitgeschnitten: ein Frame mit 0x3E **und** 0x3D (beide = eingegebener Wert, z. B. 150 Tage),
+      danach 0x28/0x29 neu und 0x09 nach 25 s zurück auf `00`. Intervall 30..180 Tage in 10er-Schritten.
+      **0x3C** nur 15, 30, 45 min. Abweichungen dort: 9. Bit nur Byte 0 (wir: 0 und 1), Frames mit erstem Byte 00
+      als Störung "repariert", 87 als ungeklärt (14 % CRC-Treffer, vermutlich wegen verlorener Frames), 0x27 = 0x28
+- [ ] **Nächstes: Filter-Reset** — am Bedienteil einmal mitschneiden (Frame, Quittung, Reaktion von 0x09/0x3E),
+      dann Knopf/Number "Filter-Reset" mit Intervall 30..180 Tage, Übernahme nach Quittung 08
+- [ ] Laufzeit Abwesend (0x3C) als select 15/30/45, nach kurzem Mitschnitt
+- [ ] 0x09 (aktuelle Meldung) und 0x1D (Laufzustand) als Sensoren auswerten
 - [x] Webserver auf `auth: type: digest` umgestellt (ab ESPHome 2027.1 Standard), capture.py kann Digest
 
 ## Test: Prüfen die Geräte das 9. Bit?
