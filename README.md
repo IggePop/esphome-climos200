@@ -28,6 +28,9 @@ Komplett-Abzug kommen, werden im Flash gehalten. Dazu ein berechneter Wärmerüc
   das Lüftergerät den Empfang quittiert (`86`/`87`, dieselbe Bestätigung, die das Bedienteil bekommt).
   Erst dann übernimmt der Sensor den Wert.
 
+- **Anlage ein/aus** über zwei Knöpfe. Bestätigt über den Status 0x08. Nach „Ein“ bleibt das Display
+  des Bedienteils dunkel, bis man es antippt, die Anlage läuft aber normal.
+
 Für alles gilt:
 
 - Gesendet wird nur im Fenster nach dem Broadcast-Poll `01 FF 84 00`, in dem kein anderes Gerät spricht.

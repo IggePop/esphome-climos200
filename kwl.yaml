@@ -321,3 +321,21 @@ switch:
       - lambda: id(kwl_bus).set_write_enabled(true);
     turn_off_action:
       - lambda: id(kwl_bus).set_write_enabled(false);
+
+# Anlage ein-/ausschalten wie am Bedienteil. Bewusst Knöpfe statt Schalter: ein Schalter könnte beim
+# Neustart des ESP seinen Zustand wiederherstellen und dabei senden. Zustand zeigt "Anlage an".
+# Bestätigt, wenn 0x08 den Wert meldet oder der Master 0x07 wiederholt (bis 20 s), keine
+# Wiederholung: "ein" löst beim Master eine Neuanmeldung aller Geräte und einen Komplett-Abzug aus.
+# Hinweis: Nach "Anlage einschalten" läuft die Anlage normal, das Display des Bedienteils bleibt
+# aber dunkel, bis man es antippt (am Bus ist der Ablauf identisch mit Einschalten am Bedienteil).
+button:
+  - platform: template
+    name: "Anlage einschalten"
+    icon: mdi:power-plug
+    on_press:
+      - lambda: id(kwl_bus).send_system_power(true);
+  - platform: template
+    name: "Anlage ausschalten"
+    icon: mdi:power-plug-off
+    on_press:
+      - lambda: id(kwl_bus).send_system_power(false);

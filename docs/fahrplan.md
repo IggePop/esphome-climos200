@@ -256,6 +256,18 @@ nach `FF` reicht dafür, etwa 130 ms Spielraum). Wichtig für Nachbauten ohne ES
 - Risiko gering: Frames werden im Fenster gesendet. Wird ein Frame verworfen, passiert nichts. Im schlimmsten
   Fall stört ein falsch erkanntes Frame kurz den Bus, dann "Senden aktiv" aus.
 
+- [x] Anlage an/aus (2026-11-25): Knöpfe „Anlage einschalten“/„Anlage ausschalten“, Frames wie vom Bedienteil
+      (`07 00 00` bzw. `07 00 01 0E 00 00`), Bestätigung über 0x08 oder Master-Echo, keine Wiederholung
+      - **Aus und Ein wirken.** Nach Ein über den ESP derselbe Ablauf wie nach Ein am Bedienteil: Neuanmeldung
+        (`81` von 04 und 08), Komplett-Abzug, `08 00 01`, Bedienteil meldet selbst `07 00 01`, Master-Echo
+        `00 00 85 03 EA 0F 07 00 01`
+      - **Einziger Unterschied: Das Display des Bedienteils bleibt nach Ein von außen dunkel**, bis man es antippt
+        (Antippen sendet nichts an den Bus). Sonst ist das Display immer an. Kein Weg am Bus bekannt, es zu wecken
+      - Nebeneffekt: Ein über den ESP löst einen Komplett-Abzug aus, alle Einstellwerte kommen frisch vom Bus
+      - Neu gesehen: 20 s nach Aus am Bedienteil `01 08 88 00` (Befehl 88 an das Lüftergerät, Bedeutung offen)
+      - Vergleich nur über das ESP-Log (zeigt nur geänderte Frames). Exakter Vergleich: Mitschnitt mit dem
+        Debug-Empfänger, optional
+
 ## Test: Prüfen die Geräte das 9. Bit?
 
 Hintergrund: Mit dem Sendefenster nach `FF` (~158 ms) wäre das Timing auch für USB- oder

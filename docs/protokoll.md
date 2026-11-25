@@ -125,6 +125,23 @@ Frame wie vom Bedienteil, `0x1B` (Freigaben) wird immer mit dem aktuellen Wert m
 - Der Abschluss-Frame `62 00 00`, den das Bedienteil 15 s nach einer eigenen Änderung schickt, war nicht nötig.
 - Ob das Lüftergerät die neue Schwelle nutzt, ist noch offen. Das zeigt sich erst im Sommerbetrieb.
 
+## Anlage an/aus (Objekt 0x07)
+
+```
+01 00 85 03 AA A7 07 00 00            Aus
+01 00 85 06 AB DE 07 00 01 0E 00 00   Ein (setzt dabei auch 0x0E = 0)
+```
+
+- **Aus:** Der Master wiederholt den Befehl mit erstem Byte `00` (`00 00 85 03 CB 1F 07 00 00`), danach
+  `08 00 00` und Lüftergerät `1A 00 00`. Etwa 20 s später folgt `01 08 88 00`, also Befehl `88` an das
+  Lüftergerät. Seine Bedeutung ist offen.
+- **Ein:** Der Master meldet Bedienteil und Lüftergerät neu an (`81` mit Kennung), schickt einen
+  Komplett-Abzug aller Register, dann `08 00 01`. Das Bedienteil meldet selbst `07 00 01`, und der Master
+  wiederholt mit `00 00 85 03 EA 0F 07 00 01`.
+- Kommt der Befehl von der Komponente statt vom Bedienteil, ist der Ablauf am Bus derselbe. Nur das
+  **Display des Bedienteils bleibt nach „Ein“ dunkel**, bis man es antippt. Das Antippen sendet nichts.
+- „Ein“ von außen löst also einen Komplett-Abzug aus. Danach liegen alle Einstellwerte frisch vom Bus vor.
+
 ## Wichtige Objekte
 
 | ID | Länge | Bedeutung |

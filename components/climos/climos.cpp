@@ -134,6 +134,9 @@ static const uint8_t BOOST_DURATION_MAX = 120;
 static const uint8_t BOOST_DURATION_STEP = 5;
 // 62 00 00 sendet das Bedienteil vor einer Einstellungsänderung (Menü geöffnet?), ohne Quittung
 static const uint16_t OBJ_SETTINGS_DONE = 0x0062;
+// Anlage an/aus: Befehl des Bedienteils (0x07), Status (0x08). Bestätigung kann wegen der Neuanmeldung dauern.
+static const uint16_t OBJ_SYSTEM_POWER = 0x0007;
+static const uint32_t SYSTEM_CONFIRM_MS = 20000;
 // 9. Bit auf den ersten zwei Bytes jedes Frames (gemessen am 2026-10-31)
 static const uint8_t SEND_MARKED_BYTES = 2;
 static const uint8_t FRAME_START = 0x01;
@@ -397,6 +400,7 @@ void Climos::handle_frame_(const uint8_t *frame, size_t size) {
   const uint8_t cmd = frame[2];
   const uint8_t *payload = frame + HEADER_SIZE;
   const size_t payload_size = size - HEADER_SIZE;
+  frame_first_byte_ = frame[0];
 
   dump_frame_("Frame", frame, size);
 
@@ -503,8 +507,13 @@ void Climos::parse_records_(const uint8_t *payload, size_t size) {
 void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
   // Beim Senden beobachten: Betriebsart, Freigaben, t_som und Abschluss-Objekt
   if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK || id == OBJ_FEATURES || id == OBJ_SUMMER_THRESHOLD ||
-      id == OBJ_BOOST_DURATION || id == OBJ_SETTINGS_DONE)
+      id == OBJ_BOOST_DURATION || id == OBJ_SETTINGS_DONE || id == OBJ_SYSTEM_POWER || id == OBJ_SYSTEM_ON)
     watch_hit_ = true;
+  // Bestätigung Anlage an/aus: Status 0x08 mit dem neuen Wert oder Echo des Masters (erstes Byte 00) von 0x07
+  if (confirm_kind_ == CONFIRM_SYSTEM && (id == OBJ_SYSTEM_ON || (id == OBJ_SYSTEM_POWER && frame_first_byte_ == 0x00))) {
+    if ((value[0] != 0) == (confirm_mode_ != 0))
+      confirm_success_(CONFIRM_SYSTEM, id == OBJ_SYSTEM_ON ? "Status 0x08" : "Echo des Masters (0x07)");
+  }
   if (id == OBJ_MODE || id == OBJ_MODE_FALLBACK) {
     // Bestätigung der gesendeten Betriebsart (auch für eine bereits vorgemerkte Wiederholung)
     const uint8_t expected =
@@ -794,6 +803,19 @@ bool Climos::send_boost_duration(float minutes) {
   return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
 }
 
+bool Climos::send_system_power(bool on) {
+  if (on) {
+    // Wie das Bedienteil: 0x07 = 1 und 0x0E (Fehlercode) = 0
+    const uint8_t payload[] = {static_cast<uint8_t>(OBJ_SYSTEM_POWER & 0xFF), static_cast<uint8_t>(OBJ_SYSTEM_POWER >> 8),
+                               0x01, static_cast<uint8_t>(OBJ_ERROR_CODE & 0xFF),
+                               static_cast<uint8_t>(OBJ_ERROR_CODE >> 8), 0x00};
+    return queue_request_(payload, sizeof(payload), CONFIRM_SYSTEM, 1, "Anlage ein");
+  }
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_SYSTEM_POWER & 0xFF), static_cast<uint8_t>(OBJ_SYSTEM_POWER >> 8),
+                             0x00};
+  return queue_request_(payload, sizeof(payload), CONFIRM_SYSTEM, 0, "Anlage aus");
+}
+
 bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
                             const std::string &label) {
   if (!write_enabled_) {
@@ -839,7 +861,7 @@ void Climos::confirm_success_(ConfirmKind kind, const char *how) {
       settings_dirty_ = false;
     }
   }
-  publish_send_status_(((kind == CONFIRM_MODE ? "bestätigt: " : "angenommen (Lüftergerät): ") + label).c_str());
+  publish_send_status_(((kind == CONFIRM_ACK ? "angenommen (Lüftergerät): " : "bestätigt: ") + label).c_str());
 }
 
 void Climos::publish_send_status_(const char *what) {
@@ -896,7 +918,8 @@ void Climos::loop_confirm_(uint32_t now) {
   const uint8_t mode = confirm_mode_;
   const std::string label = confirm_label_;
   confirm_kind_ = CONFIRM_NONE;
-  if (confirm_attempt_ >= SEND_MAX_ATTEMPTS) {
+  // Anlage an/aus nie wiederholen: "An" löst eine Neuanmeldung aller Geräte aus
+  if (confirm_attempt_ >= (kind == CONFIRM_SYSTEM ? 1 : SEND_MAX_ATTEMPTS)) {
     ESP_LOGW(TAG, "Keine Bestätigung nach %u Versuchen", static_cast<unsigned int>(confirm_attempt_));
     confirm_attempt_ = 0;
     publish_send_status_(((acked_by_panel_only_ ? "nur vom Bedienteil quittiert: " : "keine Bestätigung: ") + label)
@@ -1007,7 +1030,7 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
     confirm_mode_ = pending_mode_;
     confirm_label_ = pending_label_;
     confirm_attempt_++;
-    confirm_deadline_ = now + SEND_CONFIRM_MS;
+    confirm_deadline_ = now + (confirm_kind_ == CONFIRM_SYSTEM ? SYSTEM_CONFIRM_MS : SEND_CONFIRM_MS);
     char buf[64];
     std::snprintf(buf, sizeof(buf), "gesendet: %s (Versuch %u)", confirm_label_.c_str(),
                   static_cast<unsigned int>(confirm_attempt_));

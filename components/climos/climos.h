@@ -65,6 +65,9 @@ class Climos : public Component, public uart::UARTDevice {
   bool send_summer_threshold(float celsius);
   // Dauer der Stoßlüftung setzen wie das Bedienteil: 01 00 85 03 [CRC] 3B 00 [Minuten], 15..120 in 5er-Schritten
   bool send_boost_duration(float minutes);
+  // Anlage ein/aus wie das Bedienteil. Aus: 07 00 00, An: 07 00 01 0E 00 00 (löst Neuanmeldung aller Geräte aus).
+  // Bestätigt, wenn 0x08 (Anlage an) den Wert meldet oder der Master 0x07 mit erstem Byte 00 wiederholt.
+  bool send_system_power(bool on);
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -131,7 +134,8 @@ class Climos : public Component, public uart::UARTDevice {
   // MODE: Gerät meldet die Betriebsart (0x29 von 08 oder 0x28 vom Bedienteil) -> "bestätigt"
   // ACK:  Lüftergerät quittiert unser Frame (87 mit unserer CRC nach 86 an 08) -> "angenommen",
   //       die gesendeten Werte werden übernommen. Quittung nur vom Bedienteil zählt nicht.
-  enum ConfirmKind : uint8_t { CONFIRM_NONE, CONFIRM_MODE, CONFIRM_ACK };
+  // SYSTEM: Anlage an/aus, bestätigt über 0x08 oder das Master-Echo von 0x07; nur ein Versuch, 20 s Frist
+  enum ConfirmKind : uint8_t { CONFIRM_NONE, CONFIRM_MODE, CONFIRM_ACK, CONFIRM_SYSTEM };
   bool queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label);
   void confirm_success_(ConfirmKind kind, const char *how);
   // Wartet eine Wiederholung dieses Typs (Bestätigung kam nach Ablauf der Frist)?
@@ -170,6 +174,8 @@ class Climos : public Component, public uart::UARTDevice {
   uint8_t confirm_mode_{0};
   std::string confirm_label_;
   uint8_t confirm_attempt_{0};
+  // Erstes Byte des gerade verarbeiteten Frames (00 = Echo des Masters)
+  uint8_t frame_first_byte_{0};
   // An wen ging das letzte 86 (Bestätigung anfordern)? Die folgende 87 kommt von diesem Gerät.
   uint8_t last_ack_request_dst_{0};
   // Einstellwert wurde in diesem Durchlauf nur vom Bedienteil quittiert (zählt nicht als Bestätigung)
