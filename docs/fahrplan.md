@@ -353,8 +353,12 @@ machen zu müssen.
       bei den Werkswerten falsch sein. Test: am TFT nur **eco** um 0,5 K ändern (z. B. -3,0 -> -3,5), im Log nachsehen,
       ob `4B 00 ..` oder `4A 00 ..` kommt, dann zurückstellen. Ergebnis entscheidet die Namen in kwl.yaml
       (derzeit vorläufig: 0x4A = sicher, 0x4B = eco)
-- [ ] Danach flashen und testen: Laufzeit Abwesend, Filter-Intervall (Restlaufzeit muss stehen bleiben),
-      Filter-Reset nur nach echtem Filterwechsel
+- [x] Geflasht und getestet (2026-11-25, 23:49-23:50):
+      - Laufzeit Abwesend 30 min (`3C 00 1E`, 2. Versuch von 08 quittiert) und zurück 15 min (`3C 00 0F`, sofort 08)
+      - **Filter-Reset** vom ESP (User wollte bewusst zurücksetzen): `01 00 85 0E 2B 20 3D 00 00 00 28 00 00 3E 00 00 00 28 00 00`
+        (40 Tage), im 2. Versuch von 08 quittiert. Danach Intervall 40 d, Restlaufzeit 39 d (39 d 23:59, Sensor rundet ab)
+      - Uhr der Anlage nach Start: Abweichung 0 s
+- [ ] Noch offen: Filter-Intervall allein senden (number) testen, Restlaufzeit muss stehen bleiben
 - [ ] ~~Nächstes: Filter-Reset~~ (erledigt, s. o.) — am Bedienteil einmal mitschneiden (Frame, Quittung, Reaktion von 0x09/0x3E),
       dann Knopf/Number "Filter-Reset" mit Intervall 30..180 Tage, Übernahme nach Quittung 08
 - [ ] Laufzeit Abwesend (0x3C) als select 15/30/45, nach kurzem Mitschnitt
