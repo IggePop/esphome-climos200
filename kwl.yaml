@@ -31,6 +31,9 @@ logger:
 select:
   - platform: logger
     name: "Log-Level"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 120
 
   # Betriebsart setzen. Zeigt die laufende Betriebsart (Objekt 0x28) und sendet bei Auswahl im
   # nächsten Fenster nach 01 FF 84 00 (bis ~9 s), nur wenn "Senden aktiv" an ist. Kein Senden
@@ -39,6 +42,9 @@ select:
   # Reihenfolge = Code 1..6, Namen wie im Sensor "Betriebsart".
   - platform: template
     name: "Betriebsart setzen"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 10
     icon: mdi:fan
     update_interval: 1s
     options:
@@ -68,6 +74,9 @@ select:
   # Frostschutz-Art (0x7B) wie am Bedienteil, Übernahme erst nach Quittung des Lüftergeräts
   - platform: template
     name: "Frostschutz-Art setzen"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 20
     icon: mdi:snowflake-thermometer
     update_interval: 5s
     options:
@@ -95,6 +104,9 @@ select:
   # Bedienteil. Übernahme erst nach Quittung des Lüftergeräts.
   - platform: template
     name: "Laufzeit Abwesend setzen"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 90
     icon: mdi:timer-sand
     update_interval: 5s
     options:
@@ -117,6 +129,9 @@ select:
 number:
   - platform: template
     name: "Sommerlüftung Schwelle setzen"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 50
     state_topic: kwl/number/sommerlueftung_schwelle_setzen/state
     command_topic: kwl/number/sommerlueftung_schwelle_setzen/command
     icon: mdi:thermometer-chevron-up
@@ -137,6 +152,9 @@ number:
   # Bereich und Schritt wie am Bedienteil: 15..120 min in 5er-Schritten
   - platform: template
     name: "Dauer Stoßlüftung setzen"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 70
     state_topic: kwl/number/dauer_stosslueftung_setzen/state
     command_topic: kwl/number/dauer_stosslueftung_setzen/command
     icon: mdi:timer-cog-outline
@@ -157,6 +175,9 @@ number:
   # Leistung Stufe 1 und 3 wie am Bedienteil: 17..100 % in 1-%-Schritten (Stufe 2 ist fest 60 %)
   - platform: template
     name: "Stufe 1 Leistung setzen"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 20
     icon: mdi:fan-speed-1
     unit_of_measurement: "%"
     min_value: 17
@@ -173,6 +194,9 @@ number:
       - lambda: id(kwl_bus).send_stage_percent(1, x);
   - platform: template
     name: "Stufe 3 Leistung setzen"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 50
     icon: mdi:fan-speed-3
     unit_of_measurement: "%"
     min_value: 17
@@ -192,6 +216,9 @@ number:
   # nicht die Restlaufzeit; die setzt erst der Knopf "Filter-Reset" auf das Intervall.
   - platform: template
     name: "Filter-Intervall setzen"
+    web_server:
+      sorting_group_id: grp_filter
+      sorting_weight: 30
     icon: mdi:air-filter
     unit_of_measurement: "d"
     min_value: 30
@@ -217,6 +244,9 @@ number:
 text:
   - platform: template
     name: "Wochenprogramm Mo-Fr setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 80
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -229,6 +259,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x1F, x);
   - platform: template
     name: "Wochenprogramm Sa-So setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 90
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -241,6 +274,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x60, x);
   - platform: template
     name: "Wochenprogramm Montag setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 100
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -253,6 +289,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x01, x);
   - platform: template
     name: "Wochenprogramm Dienstag setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 110
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -265,6 +304,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x02, x);
   - platform: template
     name: "Wochenprogramm Mittwoch setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 120
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -277,6 +319,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x04, x);
   - platform: template
     name: "Wochenprogramm Donnerstag setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 130
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -289,6 +334,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x08, x);
   - platform: template
     name: "Wochenprogramm Freitag setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 140
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -301,6 +349,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x10, x);
   - platform: template
     name: "Wochenprogramm Samstag setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 150
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -313,6 +364,9 @@ text:
       - lambda: id(kwl_bus).send_schedule(0x20, x);
   - platform: template
     name: "Wochenprogramm Sonntag setzen"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 160
     icon: mdi:calendar-edit
     mode: text
     max_length: 255
@@ -337,6 +391,37 @@ ota:
 # Anmeldung bedienen. Digest: das Passwort geht nicht im Klartext übers Netz (Inhalt schon).
 web_server:
   port: 80
+  # Version 3 mit Gruppen. Diese Seite ist die Wartungsoberfläche, das Dashboard für den Alltag
+  # kommt über ioBroker (MQTT).
+  version: 3
+  sorting_groups:
+    - id: grp_betrieb
+      name: "Betrieb"
+      sorting_weight: 10
+    - id: grp_temperaturen
+      name: "Temperaturen"
+      sorting_weight: 20
+    - id: grp_sommer
+      name: "Sommerlüftung"
+      sorting_weight: 30
+    - id: grp_einstellungen
+      name: "Einstellungen"
+      sorting_weight: 40
+    - id: grp_frost
+      name: "Frostschutz"
+      sorting_weight: 50
+    - id: grp_filter
+      name: "Filter"
+      sorting_weight: 60
+    - id: grp_wochenprogramm
+      name: "Wochenprogramm"
+      sorting_weight: 70
+    - id: grp_uhr
+      name: "Uhr"
+      sorting_weight: 80
+    - id: grp_diagnose
+      name: "Diagnose"
+      sorting_weight: 90
   auth:
     type: digest
     username: admin
@@ -390,149 +475,293 @@ climos:
   # keine Bestätigung / kein Sendefenster / gesperrt / ungültig
   send_status:
     name: "Letztes Senden"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 80
   # Frostschutz-Art: eco / sicher / Feuchte-WT (im Flash gehalten)
   frost_mode:
     id: frostschutz_art
     name: "Frostschutz-Art"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 10
   # Datum und Uhrzeit der Anlage aus dem Zeit-Frame des Masters (alle 5 s), z.B. "Mi 25.11.2026 20:34"
   panel_clock:
     name: "Uhr der Anlage"
+    web_server:
+      sorting_group_id: grp_uhr
+      sorting_weight: 10
   # Zuordnung abgeleitet aus Wärmerückgewinnung (~80 %) bei geschlossenem Bypass
   temperature_81:
     id: t_zuluft
     name: "Temperatur Zuluft"
+    web_server:
+      sorting_group_id: grp_temperaturen
+      sorting_weight: 20
   temperature_82:
     id: t_aussenluft
     name: "Temperatur Außenluft"
+    web_server:
+      sorting_group_id: grp_temperaturen
+      sorting_weight: 10
     state_topic: kwl/sensor/temperatur_aussenluft/state
   temperature_83:
     id: t_abluft
     name: "Temperatur Abluft"
+    web_server:
+      sorting_group_id: grp_temperaturen
+      sorting_weight: 30
   temperature_84:
     name: "Temperatur Fortluft"
+    web_server:
+      sorting_group_id: grp_temperaturen
+      sorting_weight: 40
   # Gefahrene Stufe (in Automatik die vom Programm gewählte), wird im Flash gehalten
   fan_stage:
     name: "Lüfterstufe"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 30
     state_topic: kwl/text_sensor/luefterstufe/state
   filter_remaining:
     name: "Filter-Restlaufzeit"
+    web_server:
+      sorting_group_id: grp_filter
+      sorting_weight: 10
   filter_interval:
     id: filter_intervall
     name: "Filter-Intervall"
+    web_server:
+      sorting_group_id: grp_filter
+      sorting_weight: 20
   operating_mode:
     id: betriebsart
     name: "Betriebsart"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 20
   operating_hours:
     name: "Betriebsstunden insgesamt"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 40
   fan_operating_hours:
     name: "Betriebsstunden Lüfter"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 50
     state_topic: kwl/sensor/betriebsstunden_luefter/state
   system_on:
     name: "Anlage an"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 40
   # Läuft gerade (Status 0x1A Bit 5), nicht der Haken im Bedienteil
   summer_ventilation:
     id: sommerlueftung
     name: "Sommerlüftung aktiv"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 10
     state_topic: kwl/binary_sensor/sommerlueftung_aktiv/state
   exhaust_fan:
     name: "Fortluftventilator"
+    web_server:
+      sorting_group_id: grp_temperaturen
+      sorting_weight: 60
   # t_som. Nur nach Anmeldung des Bedienteils am Bus bekannt (im Flash gehalten)
   summer_threshold:
     id: t_som
     name: "Sommerlüftung Schwelle"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 40
     state_topic: kwl/sensor/sommerlueftung_schwelle/state
   summer_min_outside:
     name: "Sommerlüftung Min. Außenluft"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 70
     state_topic: kwl/sensor/sommerlueftung_min_aussenluft/state
   # Diagnose: Status-Byte von Gerät 08 (Bit 3 Fortluftventilator, Bit 5 Sommerlüftung)
   status_1a:
     name: "Status 0x1A"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 10
   # Nur nach Anmeldung des Bedienteils am Bus bekannt (z.B. nach Stromausfall)
   last_message:
     name: "Letzte Meldung"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 30
   bus_version:
     name: "BUS-Version"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 70
   sw_master:
     name: "SW Master"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 80
   sw_slave:
     name: "SW Slave"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 90
   sw_tft:
     name: "SW Bedienteil"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 100
   # Diagnose: Objekt 0x44, Bedeutung unbekannt (keine Drehzahl)
   fan_level_raw:
     name: "Rohwert 0x44"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 60
   # Nur im Komplett-Abzug: Hysterese H_som und Haken "Sommerlüftung aktiv" im Bedienteil
   summer_hysteresis:
     name: "Sommerlüftung Hysterese"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 60
     state_topic: kwl/sensor/sommerlueftung_hysterese/state
   summer_enabled:
     id: sommer_frei
     name: "Sommerlüftung freigegeben"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 20
     state_topic: kwl/binary_sensor/sommerlueftung_freigegeben/state
   # 0 = keine Störung
   error_code:
     name: "Fehlercode"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 20
   # Nur im Komplett-Abzug oder bei Änderung am Bedienteil
   stage_1_percent:
     id: stufe1_leistung
     name: "Stufe 1 Leistung"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 10
   stage_2_percent:
     name: "Stufe 2 Leistung"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 30
   stage_3_percent:
     id: stufe3_leistung
     name: "Stufe 3 Leistung"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 40
   boost_duration:
     id: dauer_stoss
     name: "Dauer Stoßlüftung"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 60
     state_topic: kwl/sensor/dauer_stosslueftung/state
   away_interval:
     id: abwesend_laufzeit
     name: "Laufzeit pro Stunde bei Abwesend"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 80
   debalance_stage_1:
     name: "Disbalance Stufe 1"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 100
   debalance_stage_2:
     name: "Disbalance Stufe 2"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 110
   debalance_stage_3:
     name: "Disbalance Stufe 3"
+    web_server:
+      sorting_group_id: grp_einstellungen
+      sorting_weight: 120
   # Frostschutzschwellen Außenluft: 0x4A = sicher, 0x4B = eco, 0x4C = Feuchte-WT (Bedienteil zeigt
   # eco, sicher, Feuchte-WT und sendet dabei 4B, 4A, 4C; Werkseinstellung -3,0 / -2,0 / -3,0 °C)
   frost_threshold_1:
     name: "Frostschutz-Schwelle sicher"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 40
   frost_threshold_2:
     name: "Frostschutz-Schwelle eco"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 30
   frost_threshold_3:
     name: "Frostschutz-Schwelle Feuchte-WT"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 50
   # Frostschutzschwelle minimale Zulufttemperatur (0x47, Werkseinstellung 5,0 °C)
   frost_min_supply:
     name: "Frostschutz-Schwelle min. Zuluft"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 60
   # Wochenprogramm, nur im Komplett-Abzug oder bei Änderung am Bedienteil
   schedule_monday:
     id: wp_montag
     name: "Wochenprogramm Montag"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 10
   schedule_tuesday:
     id: wp_dienstag
     name: "Wochenprogramm Dienstag"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 20
   schedule_wednesday:
     id: wp_mittwoch
     name: "Wochenprogramm Mittwoch"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 30
   schedule_thursday:
     id: wp_donnerstag
     name: "Wochenprogramm Donnerstag"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 40
   schedule_friday:
     id: wp_freitag
     name: "Wochenprogramm Freitag"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 50
   schedule_saturday:
     id: wp_samstag
     name: "Wochenprogramm Samstag"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 60
   schedule_sunday:
     id: wp_sonntag
     name: "Wochenprogramm Sonntag"
+    web_server:
+      sorting_group_id: grp_wochenprogramm
+      sorting_weight: 70
 
 sensor:
   # Wärmerückgewinnung (Zuluftseite). Während der Sommerlüftung ohne Bedeutung,
   # bei kleinem Abstand Abluft/Außenluft zu ungenau.
   - platform: template
     name: "Wärmerückgewinnungsgrad"
+    web_server:
+      sorting_group_id: grp_temperaturen
+      sorting_weight: 50
     state_topic: kwl/sensor/waermerueckgewinnungsgrad/state
     unit_of_measurement: "%"
     accuracy_decimals: 0
@@ -552,6 +781,9 @@ sensor:
   # Abweichung der Uhr der Anlage von der NTP-Zeit (positiv = Anlage geht vor)
   - platform: template
     name: "Uhr der Anlage Abweichung"
+    web_server:
+      sorting_group_id: grp_uhr
+      sorting_weight: 20
     unit_of_measurement: "s"
     accuracy_decimals: 0
     icon: mdi:clock-alert-outline
@@ -568,6 +800,9 @@ sensor:
 switch:
   - platform: template
     name: "Senden aktiv"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 70
     icon: mdi:send-lock
     entity_category: config
     optimistic: true
@@ -581,6 +816,9 @@ switch:
   # beim Schalten, beim Start nie (restore_mode DISABLED). Übernahme erst nach Quittung des Lüftergeräts.
   - platform: template
     name: "Sommerlüftung freigeben"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 30
     state_topic: kwl/switch/sommerlueftung_freigeben/state
     command_topic: kwl/switch/sommerlueftung_freigeben/command
     icon: mdi:weather-sunny
@@ -603,11 +841,17 @@ switch:
 button:
   - platform: template
     name: "Anlage einschalten"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 50
     icon: mdi:power-plug
     on_press:
       - lambda: id(kwl_bus).send_system_power(true);
   - platform: template
     name: "Anlage ausschalten"
+    web_server:
+      sorting_group_id: grp_betrieb
+      sorting_weight: 60
     icon: mdi:power-plug-off
     on_press:
       - lambda: id(kwl_bus).send_system_power(false);
@@ -615,6 +859,9 @@ button:
   # Datum und Uhrzeit der Anlage auf die NTP-Zeit stellen (zwei Frames: 0x01 Datum, 0x02 Uhrzeit)
   - platform: template
     name: "Uhr der Anlage stellen"
+    web_server:
+      sorting_group_id: grp_uhr
+      sorting_weight: 30
     icon: mdi:clock-edit-outline
     on_press:
       - lambda: id(kwl_bus).send_clock(id(sntp_time).now());
@@ -623,6 +870,9 @@ button:
   # Restlaufzeit (0x3E) in einem Frame auf das aktuelle Intervall. Nur nach einem echten Wechsel drücken.
   - platform: template
     name: "Filter-Reset"
+    web_server:
+      sorting_group_id: grp_filter
+      sorting_weight: 40
     icon: mdi:air-filter
     entity_category: config
     on_press:
@@ -634,6 +884,9 @@ button:
   # nicht mehr stimmen (geändert am Bedienteil, während der ESP aus war).
   - platform: template
     name: "Komplett-Abzug anfordern"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 110
     icon: mdi:database-refresh
     entity_category: diagnostic
     on_press:
