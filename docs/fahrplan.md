@@ -275,7 +275,7 @@ auch mit einem Adapter im Modus 8S1 (alle Bytes 9. Bit = 0).
 - [x] **Ergebnis: Das 9. Bit wird geprüft, auf Byte 0 und Byte 1.** Ein UART mit fester Parität (8S1/8M1)
       kann damit nicht senden, USB- und Ethernet-Adapter scheiden aus. Lückentest entfällt.
       Interpretation: 9. Bit auf Byte 0 = Frame-Anfang, auf Byte 1 = Adressbyte (Ziel)
-- [ ] Testknöpfe danach wieder aus kwl.yaml entfernen
+- [x] Testknöpfe aus kwl.yaml entfernt (2026-11-25), send_marking_test() bleibt in der Komponente
 
 ## Phase 4: ESP als zweites Bedienteil (optional)
 

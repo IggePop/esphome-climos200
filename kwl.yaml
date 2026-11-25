@@ -109,30 +109,6 @@ number:
     set_action:
       - lambda: id(kwl_bus).send_boost_duration(x);
 
-# Test: Prüfen die Geräte das 9. Bit? Sendet die laufende Betriebsart (ändert nichts) mit dem
-# 9. Bit nur auf Byte 0 bzw. ganz ohne, "normal" zum Vergleich. Ergebnis in "Letztes Senden"
-# und im Log ("Quittung von .."). Wird es angenommen, prüfen die Geräte das 9. Bit nicht, dann
-# ginge zum Senden auch ein USB-/Ethernet-Adapter mit 8S1. Nach dem Test entfernen.
-button:
-  - platform: template
-    name: "Test 9. Bit nur Byte 0"
-    icon: mdi:test-tube
-    entity_category: diagnostic
-    on_press:
-      - lambda: id(kwl_bus).send_marking_test(1);
-  - platform: template
-    name: "Test 9. Bit ohne"
-    icon: mdi:test-tube
-    entity_category: diagnostic
-    on_press:
-      - lambda: id(kwl_bus).send_marking_test(0);
-  - platform: template
-    name: "Test 9. Bit normal"
-    icon: mdi:test-tube
-    entity_category: diagnostic
-    on_press:
-      - lambda: id(kwl_bus).send_marking_test(2);
-
 # Für Home Assistant einkommentieren (hier wird ESPHome ohne Home Assistant über MQTT betrieben).
 #api:
 #  encryption:
@@ -190,6 +166,8 @@ climos:
   # Nur wenn "Senden aktiv" an ist. Zum Abschalten des Senders diese Zeile auskommentieren.
   # Sendetest 9. Bit: zusätzlich bit_capture_pin auf GPIO4, beide mit allow_other_uses: true
   # (das Waveshare-Modul gibt das eigene Senden nicht auf RXD zurück).
+  # Test, ob die Geräte das 9. Bit prüfen: Knopf mit id(kwl_bus).send_marking_test(0|1|2),
+  # Ergebnis siehe docs/protokoll.md (sie prüfen es).
   tx_pin: GPIO4
   # Ergebnis der letzten Umschaltung: vorgemerkt / gesendet (Versuch n) / bestätigt /
   # angenommen (Lüftergerät) / nur vom Bedienteil quittiert / keine Bestätigung /
