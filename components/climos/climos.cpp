@@ -128,6 +128,8 @@ static const uint8_t SEND_MAX_ATTEMPTS_ACK = 5;
 // Datum/Uhrzeit: Bestätigung spätestens mit dem nächsten Zeit-Frame (alle 5 s)
 static const uint32_t ECHO_CONFIRM_MS = 7000;
 static const int32_t CLOCK_CONFIRM_TOLERANCE_S = 10;
+// Automatisch stellen erst ab dieser Abweichung
+static const int32_t CLOCK_SYNC_THRESHOLD_S = 60;
 static const uint8_t ADDR_PANEL = 0x04;
 static const uint8_t ADDR_FAN_UNIT = 0x08;
 // t_som: Grenzen zur Sicherheit (am Bedienteil gesehen: 24,5 °C, Schritt 0,5 K vermutet)
@@ -1015,6 +1017,18 @@ bool Climos::send_clock(const ESPTime &now) {
     return false;
   }
   return true;
+}
+
+bool Climos::sync_clock_if_needed(const ESPTime &now) {
+  const int32_t deviation = panel_clock_deviation(now);
+  if (deviation == INT32_MAX || std::abs(deviation) <= CLOCK_SYNC_THRESHOLD_S)
+    return false;
+  if (is_busy()) {
+    ESP_LOGI(TAG, "Uhr der Anlage weicht %d s ab, nicht gestellt: andere Anforderung läuft", static_cast<int>(deviation));
+    return false;
+  }
+  ESP_LOGI(TAG, "Uhr der Anlage weicht %d s ab, wird gestellt", static_cast<int>(deviation));
+  return send_clock(now);
 }
 
 // Datum/Uhrzeit bestätigt, wenn der Master (erstes Byte 00) den gesendeten Wert meldet: Datum ohne Wochentag

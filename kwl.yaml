@@ -586,8 +586,10 @@ button:
     on_press:
       - lambda: id(kwl_bus).request_full_dump();
 
-# NTP-Zeit. Täglich um 03:30 die Uhr der Anlage stellen, wenn sie mehr als 60 s abweicht
-# (auch nach der Zeitumstellung).
+# NTP-Zeit. Die Anlage stellt selbst nicht auf Sommer-/Winterzeit um. Jede Stunde um xx:30 prüfen
+# und stellen, wenn die Uhr der Anlage mehr als 60 s abweicht (erfasst auch die Zeitumstellung und
+# einen Stromausfall der Anlage). Die Prüfung selbst sendet nichts; gestellt wird nur, wenn gerade
+# keine andere Anforderung läuft.
 time:
   - platform: sntp
     id: sntp_time
@@ -595,10 +597,19 @@ time:
     on_time:
       - seconds: 0
         minutes: 30
-        hours: 3
         then:
-          - lambda: |-
-              const ESPTime now = id(sntp_time).now();
-              const int32_t dev = id(kwl_bus).panel_clock_deviation(now);
-              if (dev != INT32_MAX && std::abs(dev) > 60)
-                id(kwl_bus).send_clock(now);
+          - lambda: id(kwl_bus).sync_clock_if_needed(id(sntp_time).now());
+
+# Einmal nach dem Start des ESP prüfen, sobald NTP-Zeit und Uhr der Anlage bekannt sind
+interval:
+  - interval: 30s
+    then:
+      - lambda: |-
+          static bool done = false;
+          if (done)
+            return;
+          const ESPTime now = id(sntp_time).now();
+          if (id(kwl_bus).panel_clock_deviation(now) == INT32_MAX)
+            return;
+          done = true;
+          id(kwl_bus).sync_clock_if_needed(now);

@@ -35,8 +35,8 @@ Frostschutz-Art sowie Datum und Uhrzeit der Anlage mit der Abweichung zur NTP-Ze
 - **Wochenprogramm** über Texteingaben je Tag und für Mo–Fr/Sa–So, im Format der Anzeige,
   z. B. `00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1`. Gesendet werden nur die Register der gewählten
   Tage, wie vom Bedienteil. Jedes Frame muss das Lüftergerät quittieren.
-- **Uhr der Anlage** stellen per Knopf auf die NTP-Zeit, dazu täglich um 03:30 automatisch, wenn sie
-  mehr als 60 s abweicht. Bestätigt, wenn der Master die Werte selbst wiederholt (dafür gibt es keine
+- **Uhr der Anlage** stellen per Knopf auf die NTP-Zeit. Automatisch jede Stunde (xx:30) und einmal nach dem
+  Start des ESP, wenn sie mehr als 60 s abweicht. Die Anlage stellt selbst nicht auf Sommer-/Winterzeit um. Bestätigt, wenn der Master die Werte selbst wiederholt (dafür gibt es keine
   Quittung über 86/87).
 - **Komplett-Abzug anfordern** per Knopf (`01 01 83 00`): Der Master schickt alle Register neu. Der Lüfter
   geht dabei etwa 13 s aus, daher nur von Hand. Sonst hält der ESP die Einstellwerte im Flash.
