@@ -84,6 +84,8 @@ CONF_SUMMER_ENABLED = "summer_enabled"
 STAGE_PERCENT_KEYS = ["stage_1_percent", "stage_2_percent", "stage_3_percent"]
 CONF_BOOST_DURATION = "boost_duration"
 CONF_AWAY_INTERVAL = "away_interval"
+# Frostschutzschwelle minimale Zulufttemperatur (0x47, 0,1 °C, Werkseinstellung 5,0 °C)
+CONF_FROST_MIN_SUPPLY = "frost_min_supply"
 # Wochenprogramm je Tag (Objekte 0x64..0x78), nur im Komplett-Abzug
 SCHEDULE_KEYS = [
     "schedule_monday",
@@ -95,7 +97,8 @@ SCHEDULE_KEYS = [
     "schedule_sunday",
 ]
 DEBALANCE_KEYS = ["debalance_stage_1", "debalance_stage_2", "debalance_stage_3"]
-# Reihenfolge der Schwellen vermutlich wie in der Anleitung: eco, sicher, Feuchte-WT
+# Register 0x4A, 0x4B, 0x4C = Frostschutzschwelle sicher, eco, Feuchte-WT (Bedienteil zeigt eco, sicher,
+# Feuchte-WT und sendet dabei 4B, 4A, 4C; Werte passen zur Werkseinstellung -2,0 / -3,0 / -3,0 °C)
 FROST_THRESHOLD_KEYS = ["frost_threshold_1", "frost_threshold_2", "frost_threshold_3"]
 SETTING_MINUTES_SCHEMA = sensor.sensor_schema(
     unit_of_measurement=UNIT_MINUTE,
@@ -185,6 +188,7 @@ CONFIG_SCHEMA = cv.Schema(
         **{cv.Optional(key): SETTING_TEMPERATURE_SCHEMA for key in FROST_THRESHOLD_KEYS},
         cv.Optional(CONF_BOOST_DURATION): SETTING_MINUTES_SCHEMA,
         cv.Optional(CONF_AWAY_INTERVAL): SETTING_MINUTES_SCHEMA,
+        cv.Optional(CONF_FROST_MIN_SUPPLY): SETTING_TEMPERATURE_SCHEMA,
         cv.Optional(CONF_ERROR_CODE): sensor.sensor_schema(
             accuracy_decimals=0,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -243,6 +247,7 @@ async def to_code(config):
         (CONF_ERROR_CODE, var.set_error_code_sensor),
         (CONF_BOOST_DURATION, var.set_boost_duration_sensor),
         (CONF_AWAY_INTERVAL, var.set_away_interval_sensor),
+        (CONF_FROST_MIN_SUPPLY, var.set_frost_min_supply_sensor),
     ):
         if key in config:
             sens = await sensor.new_sensor(config[key])

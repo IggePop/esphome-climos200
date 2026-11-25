@@ -26,6 +26,8 @@ Frostschutz-Art sowie Datum und Uhrzeit der Anlage mit der Abweichung zur NTP-Ze
   - Dauer der Stoßlüftung, 15–120 min in 5er-Schritten
   - Leistung Stufe 1 und Stufe 3, 17–100 % (Stufe 2 ist fest 60 %)
   - Frostschutz-Art (eco, sicher, Feuchte-WT) über ein `select`
+  - Laufzeit bei Abwesend (15/30/45 min je Stunde) über ein `select`
+  - Filter-Intervall, 30–180 Tage in 10er-Schritten, und **Filter-Reset** per Knopf (wie am Bedienteil)
   - Sommerlüftung freigeben/sperren über einen `switch` (nur Bit 7 von 0x1B, beim Start wird nichts gesendet)
 
   Einstellwerte meldet kein Gerät zurück, auch nicht bei Änderung am Bedienteil. Erfolg gilt daher, wenn

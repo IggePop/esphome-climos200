@@ -78,6 +78,12 @@ class Climos : public Component, public uart::UARTDevice {
   bool send_stage_percent(uint8_t stage, float percent);
   // Frostschutz-Art setzen (0x7B): 0 = eco, 1 = sicher, 2 = Feuchte-WT
   bool send_frost_mode(uint8_t mode);
+  // Laufzeit pro Stunde bei Abwesend setzen (0x3C): 15, 30 oder 45 min wie am Bedienteil
+  bool send_away_interval(uint8_t minutes);
+  // Filter-Intervall setzen (0x3D allein, wie das Bedienteil beim Einstellen): 30..180 Tage in 10er-Schritten
+  bool send_filter_interval(float days);
+  // Filter-Reset wie das Bedienteil: 0x3D und 0x3E in einem Frame, beide = aktuelles Intervall
+  bool send_filter_reset();
   // Sommerlüftung freigeben/sperren: 0x1B mit aktuellem Wert und geändertem Bit 7 (braucht 0x1B)
   bool send_summer_enabled(bool enabled);
   // Datum und Uhrzeit des Bedienteils stellen (0x01, 0x02), Uhrzeit wird direkt vor dem Senden aktualisiert
@@ -125,7 +131,9 @@ class Climos : public Component, public uart::UARTDevice {
   void set_boost_duration_sensor(sensor::Sensor *sensor) { boost_duration_sensor_ = sensor; }
   void set_away_interval_sensor(sensor::Sensor *sensor) { away_interval_sensor_ = sensor; }
   void set_debalance_sensor(uint8_t index, sensor::Sensor *sensor) { debalance_sensors_[index] = sensor; }
+  // index 0..2 = Register 0x4A (sicher), 0x4B (eco), 0x4C (Feuchte-WT)
   void set_frost_threshold_sensor(uint8_t index, sensor::Sensor *sensor) { frost_threshold_sensors_[index] = sensor; }
+  void set_frost_min_supply_sensor(sensor::Sensor *sensor) { frost_min_supply_sensor_ = sensor; }
   void set_schedule_text_sensor(uint8_t day, text_sensor::TextSensor *sensor) { schedule_text_sensors_[day] = sensor; }
   void set_summer_enabled_binary_sensor(binary_sensor::BinarySensor *sensor) { summer_enabled_binary_sensor_ = sensor; }
   // Zustand der letzten Umschaltung (vorgemerkt, gesendet, bestätigt, keine Bestätigung, ...)
@@ -286,6 +294,10 @@ class Climos : public Component, public uart::UARTDevice {
   sensor::Sensor *away_interval_sensor_{nullptr};
   sensor::Sensor *debalance_sensors_[NUM_FAN_STAGES]{};
   sensor::Sensor *frost_threshold_sensors_[NUM_FROST_THRESHOLDS]{};
+  sensor::Sensor *frost_min_supply_sensor_{nullptr};
+  // Filter-Intervall in Tagen aus 0x3D (für den Filter-Reset)
+  uint16_t filter_interval_days_{0};
+  bool has_filter_interval_{false};
   // Gespeicherte Einstellwerte (Rohbytes je Register)
   ESPPreferenceObject settings_pref_;
   SettingsStore settings_{};

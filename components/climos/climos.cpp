@@ -163,7 +163,14 @@ static const uint8_t STAGE_PERCENT_MAX = 100;
 static const uint16_t OBJ_FROST_MODE = 0x007B;
 static const uint8_t FROST_MODE_MAX = 2;
 // Einstellwerte im zusätzlichen Speicher (Länge je ID aus OBJECT_LENGTHS, zusammen höchstens 8 Byte, 32 IDs)
-static const uint16_t EXTRA_PERSISTED_IDS[] = {OBJ_FROST_MODE};
+// Frostschutzschwelle minimale Zulufttemperatur, 0,1 °C (Werkseinstellung 5,0 °C)
+static const uint16_t OBJ_FROST_MIN_SUPPLY = 0x0047;
+// Filter-Intervall am Bedienteil: 30..180 Tage in 10er-Schritten
+static const uint16_t FILTER_INTERVAL_MIN = 30;
+static const uint16_t FILTER_INTERVAL_MAX = 180;
+static const uint16_t FILTER_INTERVAL_STEP = 10;
+// Nur hinten anfügen: der Speicherschlüssel bleibt gleich, bestehende Einträge behalten ihren Platz
+static const uint16_t EXTRA_PERSISTED_IDS[] = {OBJ_FROST_MODE, OBJ_FROST_MIN_SUPPLY};
 static const uint8_t NUM_EXTRA_PERSISTED = sizeof(EXTRA_PERSISTED_IDS) / sizeof(EXTRA_PERSISTED_IDS[0]);
 static const char *const WEEKDAYS[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
 
@@ -311,7 +318,8 @@ uint8_t Climos::object_length_(uint16_t id) {
 }
 
 void Climos::setup_extra_settings_() {
-  const uint32_t hash = fnv1_hash("climos_settings_extra") ^ NUM_EXTRA_PERSISTED;
+  // Fester Schlüssel (Stand mit einer ID); neue IDs nur hinten anfügen, Gültig-Bits halten die Zuordnung
+  const uint32_t hash = fnv1_hash("climos_settings_extra") ^ 1u;
   extra_pref_ = global_preferences->make_preference<ExtraStore>(hash);
   if (!extra_pref_.load(&extra_)) {
     extra_ = ExtraStore{};
@@ -412,6 +420,7 @@ void Climos::dump_config() {
   for (uint8_t i = 0; i < NUM_FROST_THRESHOLDS; i++) {
     LOG_SENSOR("  ", "Frostschutz-Schwelle", frost_threshold_sensors_[i]);
   }
+  LOG_SENSOR("  ", "Frostschutz min. Zuluft", frost_min_supply_sensor_);
   LOG_BINARY_SENSOR("  ", "Sommerlüftung freigegeben", summer_enabled_binary_sensor_);
 }
 
@@ -708,7 +717,12 @@ void Climos::handle_object_(uint16_t id, const uint8_t *value, uint8_t length) {
     case OBJ_FILTER_REMAINING:
       publish_if_changed_(filter_remaining_sensor_, duration_to_minutes_(value) / (24 * 60));
       break;
+    case OBJ_FROST_MIN_SUPPLY:
+      publish_if_changed_(frost_min_supply_sensor_, static_cast<int16_t>(value[0] | (value[1] << 8)) / 10.0f);
+      break;
     case OBJ_FILTER_INTERVAL:
+      filter_interval_days_ = static_cast<uint16_t>(duration_to_minutes_(value) / (24 * 60));
+      has_filter_interval_ = true;
       publish_if_changed_(filter_interval_sensor_, duration_to_minutes_(value) / (24 * 60));
       break;
     case OBJ_MODE:
@@ -949,6 +963,52 @@ bool Climos::send_stage_percent(uint8_t stage, float percent) {
   std::snprintf(label, sizeof(label), "Stufe %u %ld %%", stage, value);
   const uint8_t payload[] = {static_cast<uint8_t>(id & 0xFF), static_cast<uint8_t>(id >> 8),
                              static_cast<uint8_t>(value)};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_away_interval(uint8_t minutes) {
+  if (minutes != 15 && minutes != 30 && minutes != 45) {
+    ESP_LOGW(TAG, "Laufzeit Abwesend %u min ungültig, erlaubt sind 15, 30, 45", minutes);
+    return false;
+  }
+  char label[32];
+  std::snprintf(label, sizeof(label), "Abwesend %u min/h", minutes);
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_AWAY_INTERVAL & 0xFF), static_cast<uint8_t>(OBJ_AWAY_INTERVAL >> 8),
+                             minutes};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_filter_interval(float days) {
+  const long value = std::isnan(days) ? -1 : std::lround(days);
+  if (value < FILTER_INTERVAL_MIN || value > FILTER_INTERVAL_MAX || value % FILTER_INTERVAL_STEP != 0) {
+    ESP_LOGW(TAG, "Filter-Intervall %.0f Tage ungültig, erlaubt sind %u..%u in %u-er Schritten", days,
+             FILTER_INTERVAL_MIN, FILTER_INTERVAL_MAX, FILTER_INTERVAL_STEP);
+    return false;
+  }
+  char label[32];
+  std::snprintf(label, sizeof(label), "Filter-Intervall %ld Tage", value);
+  // Zeitdauer [Minuten][Stunden][Tage lo][Tage hi][Jahre]
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_FILTER_INTERVAL & 0xFF), static_cast<uint8_t>(OBJ_FILTER_INTERVAL >> 8),
+                             0, 0, static_cast<uint8_t>(value & 0xFF), static_cast<uint8_t>(value >> 8), 0};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_filter_reset() {
+  if (!has_filter_interval_ || filter_interval_days_ < FILTER_INTERVAL_MIN || filter_interval_days_ > FILTER_INTERVAL_MAX) {
+    ESP_LOGW(TAG, "Filter-Reset nicht gesendet: Filter-Intervall unbekannt");
+    publish_send_status_("nicht möglich (Filter-Intervall unbekannt): Filter-Reset");
+    return false;
+  }
+  const uint16_t d = filter_interval_days_;
+  char label[40];
+  std::snprintf(label, sizeof(label), "Filter-Reset auf %u Tage", d);
+  // Wie das Bedienteil (2026-11-25): Intervall und Restlaufzeit in einem Frame, beide = Intervall
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_FILTER_INTERVAL & 0xFF),
+                             static_cast<uint8_t>(OBJ_FILTER_INTERVAL >> 8),
+                             0, 0, static_cast<uint8_t>(d & 0xFF), static_cast<uint8_t>(d >> 8), 0,
+                             static_cast<uint8_t>(OBJ_FILTER_REMAINING & 0xFF),
+                             static_cast<uint8_t>(OBJ_FILTER_REMAINING >> 8),
+                             0, 0, static_cast<uint8_t>(d & 0xFF), static_cast<uint8_t>(d >> 8), 0};
   return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
 }
 

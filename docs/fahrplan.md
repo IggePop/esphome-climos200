@@ -334,7 +334,23 @@ machen zu müssen.
       kommt derselbe Abzug mit `08 00 00`, geht 0x1A auf `01`, geht der Lüfter hörbar aus?
       Vorsicht: ohne Bedienteil fährt die Anlage laut Anleitung ein reduziertes Notprogramm, nur kurz abziehen.
       Vermeidbar wäre es nur ohne Abzug (Werte im Flash wie jetzt, oder ein unbekannter Befehl für einzelne Register)
-- [ ] **Nächstes: Filter-Reset** — am Bedienteil einmal mitschneiden (Frame, Quittung, Reaktion von 0x09/0x3E),
+- [x] Mitschnitt Abwesend, Filter, Frostschutz-Temperatur am Bedienteil (2026-11-25, 23:25-23:28, ESP-Log):
+      - **0x3C Laufzeit Abwesend:** `62 00 00`, dann `3C 00 0F` -> `1E` -> `2D` -> `0F` (15/30/45/15 min), bestätigt.
+        Umgesetzt als select "Laufzeit Abwesend setzen" (send_away_interval, Quittung 08), kompiliert, nicht geflasht
+      - **Filter:** vorher 0x3D = 180 d, 0x3E = 38 d 20:24. Beim Blättern sendet das Bedienteil **0x3D allein**
+        (`3D 00 00 00 AA 00 00` = 170 d, dann 160, 150, 30, 180). Bestätigen = **Reset**:
+        `01 00 85 0E AF BA 3D 00 00 00 B4 00 00 3E 00 00 00 B4 00 00` (Intervall und Restlaufzeit = 180 d).
+        Master danach `3E 00 3B 17 B3 00 00` = 179 d 23:59 -> Reset wirksam. 11 s später `3D = 40 d` = vom User bewusst
+        gesetzt: Intervall allein ändern lässt die Restlaufzeit stehen (danach Intervall 40, Rest 179 Tage)
+      - **Frostschutz-Temperatur:** nur angesehen/bestätigt, Werte unverändert: `4B E2 FF` (-3,0), `4A EC FF` (-2,0),
+        `4C E2 FF` (-3,0), `47 00 32 00` (5,0). Anzeige laut User/Anleitung in dieser Reihenfolge: eco (-3,0), sicher (-2,0),
+        Feuchte-WT (-3,0), minimale Zulufttemperatur (5,0) = Werkseinstellung. **Also 0x4B = eco, 0x4A = sicher**
+        (bisher vertauscht), 0x4C = Feuchte-WT, **0x47 = min. Zulufttemperatur**. Namen in kwl.yaml korrigiert
+- [x] Umgesetzt (kompiliert, Flash + Test offen): select "Laufzeit Abwesend setzen", number "Filter-Intervall setzen"
+      (0x3D allein), Knopf "Filter-Reset" (0x3D + 0x3E = Intervall), Sensor "Frostschutz-Schwelle min. Zuluft" (0x47,
+      im Zusatzspeicher; Schlüssel des Zusatzspeichers jetzt fest, IDs nur hinten anfügen)
+- [ ] Testen: Laufzeit Abwesend, Filter-Intervall, Filter-Reset (nur nach echtem Filterwechsel)
+- [ ] ~~Nächstes: Filter-Reset~~ (erledigt, s. o.) — am Bedienteil einmal mitschneiden (Frame, Quittung, Reaktion von 0x09/0x3E),
       dann Knopf/Number "Filter-Reset" mit Intervall 30..180 Tage, Übernahme nach Quittung 08
 - [ ] Laufzeit Abwesend (0x3C) als select 15/30/45, nach kurzem Mitschnitt
 - [ ] 0x09 (aktuelle Meldung) und 0x1D (Laufzustand) als Sensoren auswerten

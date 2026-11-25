@@ -143,6 +143,21 @@ Einzeln gesendet wie vom Bedienteil, jedes Frame quittiert das Lüftergerät (`8
 - Die Quittung fragt der Master bei Frames im Fenster oft nur beim Bedienteil ab (einmal erst im
   3. Versuch beim Lüftergerät). Die Komponente wiederholt deshalb bis zu 5-mal.
 
+### Laufzeit Abwesend, Filter, Frostschutz-Schwellen (Mitschnitt 2026-11-25)
+
+```
+01 00 85 03 .. .. 3C 00 0F                                       Abwesend 15 min (1E = 30, 2D = 45)
+01 00 85 07 .. .. 3D 00 00 00 AA 00 00                           Filter-Intervall 170 Tage (nur 0x3D)
+01 00 85 0E AF BA 3D 00 00 00 B4 00 00 3E 00 00 00 B4 00 00      Filter-Reset: Intervall und Rest 180 Tage
+01 00 85 04 .. .. 4B 00 E2 FF / 4A 00 EC FF / 4C 00 E2 FF / 47 00 32 00   Frostschutz eco, sicher, Feuchte-WT, min. Zuluft
+```
+
+- Beim Einstellen des Filter-Intervalls sendet das Bedienteil jeden Wert einzeln als 0x3D. Die Restlaufzeit
+  bleibt dabei stehen (nach Intervall 40 Tage blieb sie bei 179 Tagen). Erst der Reset setzt 0x3E.
+- Die Frostschutz-Seite zeigt eco, sicher, Feuchte-WT, min. Zuluft und sendet dabei 0x4B, 0x4A, 0x4C, 0x47.
+  Die Werte passen zur Werkseinstellung laut Anleitung. Die Vermutung „0x4A = eco“ (auch in climos-exporter)
+  war falsch.
+
 ## Datum und Uhrzeit (Objekte 0x01, 0x02)
 
 ```
@@ -241,13 +256,14 @@ Ein Tag (z. B. Mittwoch):
 | `0x2E`–`0x30` | 1 | Leistung Stufe 1–3 in % (Stufe 2 fest 60 %) |
 | `0x31`–`0x33` | 1 | Disbalance Stufe 1–3 in % (vorzeichenbehaftet) |
 | `0x3B` | 1 | Dauer Stoßlüftung (min) |
-| `0x3C` | 1 | Laufzeit pro Stunde bei Abwesend (min): 15, 30 oder 45¹ |
-| `0x3D` / `0x3E` | 5 | Filter-Intervall / Filter-Restlaufzeit. Bleibt bei 0 stehen, Filter-Reset setzt beide¹ |
+| `0x3C` | 1 | Laufzeit pro Stunde bei Abwesend (min): 15, 30 oder 45 |
+| `0x3D` / `0x3E` | 5 | Filter-Intervall (30–180 Tage, Schritt 10) / Filter-Restlaufzeit. Reset setzt beide, Restlaufzeit bleibt bei 0 stehen¹ |
 | `0x41` | 2 | t_som, Schwelle Sommerlüftung (0,1 °C) |
 | `0x43` | 1 | H_som, Hysterese Sommerlüftung (0,1 K) |
 | `0x44` | 1 | unbekannt, steigt nach dem Einschalten (Lüfterhochlauf?) |
 | `0x49` | 2 | Minimale Außenlufttemperatur Sommerlüftung (0,1 °C) |
-| `0x4A`–`0x4C` | 2 | Frostschutz-Schwellen (0,1 °C, Reihenfolge vermutet: eco, sicher, Feuchte-WT) |
+| `0x47` | 2 | Frostschutzschwelle minimale Zulufttemperatur (0,1 °C, Werkseinstellung 5,0 °C) |
+| `0x4A`–`0x4C` | 2 | Frostschutzschwellen Außenluft (0,1 °C): **0x4A sicher, 0x4B eco, 0x4C Feuchte-WT** (Werkseinstellung −2,0 / −3,0 / −3,0 °C) |
 | `0x4D`–`0x50` | 1 | Kennlinie 0-10-V-Eingang: U_min (0,1 V), n_min %, U_max, n_max (17, 17, 100, 100)¹ |
 | `0x51`–`0x54` | 1 | Kennlinie 4-20-mA-Eingang: I_min, n_min, I_max, n_max¹ |
 | `0x55` | 2 | Stellwert 0-10-V-Eingang (0,1 %) |

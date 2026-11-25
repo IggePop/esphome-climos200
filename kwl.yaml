@@ -91,6 +91,25 @@ select:
             }
           }
 
+  # Laufzeit pro Stunde bei Abwesend (0x3C): Stufe 1 läuft 15, 30 oder 45 min je Stunde, wie am
+  # Bedienteil. Übernahme erst nach Quittung des Lüftergeräts.
+  - platform: template
+    name: "Laufzeit Abwesend setzen"
+    icon: mdi:timer-sand
+    update_interval: 5s
+    options:
+      - "15 min"
+      - "30 min"
+      - "45 min"
+    lambda: |-
+      const float v = id(abwesend_laufzeit).state;
+      if (v == 15) return std::string("15 min");
+      if (v == 30) return std::string("30 min");
+      if (v == 45) return std::string("45 min");
+      return {};
+    set_action:
+      - lambda: id(kwl_bus).send_away_interval(atoi(x.c_str()));
+
 # Einstellwerte. Zeigen den Wert vom Bus, senden nur bei Eingabe. Kein Gerät meldet Einstellwerte
 # zurück (auch nicht bei Änderung am Bedienteil). Ergebnis in "Letztes Senden": "angenommen
 # (Lüftergerät)" = das Lüftergerät hat den Empfang quittiert (86/87), erst dann übernimmt der
@@ -168,6 +187,25 @@ number:
       return v;
     set_action:
       - lambda: id(kwl_bus).send_stage_percent(3, x);
+
+  # Filter-Intervall (0x3D) wie am Bedienteil: 30..180 Tage in 10er-Schritten. Ändert nur das Intervall,
+  # nicht die Restlaufzeit; die setzt erst der Knopf "Filter-Reset" auf das Intervall.
+  - platform: template
+    name: "Filter-Intervall setzen"
+    icon: mdi:air-filter
+    unit_of_measurement: "d"
+    min_value: 30
+    max_value: 180
+    step: 10
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(filter_intervall).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_filter_interval(x);
 
 # Wochenprogramm setzen: je Tag oder als Gruppe Mo-Fr bzw. Sa-So (alle Tage der Gruppe gleich).
 # Format wie in der Anzeige: "00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1", Zeiten in Viertelstunden,
@@ -379,6 +417,7 @@ climos:
   filter_remaining:
     name: "Filter-Restlaufzeit"
   filter_interval:
+    id: filter_intervall
     name: "Filter-Intervall"
   operating_mode:
     id: betriebsart
@@ -447,6 +486,7 @@ climos:
     name: "Dauer Stoßlüftung"
     state_topic: kwl/sensor/dauer_stosslueftung/state
   away_interval:
+    id: abwesend_laufzeit
     name: "Laufzeit pro Stunde bei Abwesend"
   debalance_stage_1:
     name: "Disbalance Stufe 1"
@@ -454,13 +494,17 @@ climos:
     name: "Disbalance Stufe 2"
   debalance_stage_3:
     name: "Disbalance Stufe 3"
-  # Reihenfolge vermutet (Anleitung: eco, sicher, Feuchte-WT)
+  # Frostschutzschwellen Außenluft: 0x4A = sicher, 0x4B = eco, 0x4C = Feuchte-WT (Bedienteil zeigt
+  # eco, sicher, Feuchte-WT und sendet dabei 4B, 4A, 4C; Werkseinstellung -3,0 / -2,0 / -3,0 °C)
   frost_threshold_1:
-    name: "Frostschutz-Schwelle eco"
-  frost_threshold_2:
     name: "Frostschutz-Schwelle sicher"
+  frost_threshold_2:
+    name: "Frostschutz-Schwelle eco"
   frost_threshold_3:
     name: "Frostschutz-Schwelle Feuchte-WT"
+  # Frostschutzschwelle minimale Zulufttemperatur (0x47, Werkseinstellung 5,0 °C)
+  frost_min_supply:
+    name: "Frostschutz-Schwelle min. Zuluft"
   # Wochenprogramm, nur im Komplett-Abzug oder bei Änderung am Bedienteil
   schedule_monday:
     id: wp_montag
@@ -574,6 +618,15 @@ button:
     icon: mdi:clock-edit-outline
     on_press:
       - lambda: id(kwl_bus).send_clock(id(sntp_time).now());
+
+  # Filter-Reset nach dem Filterwechsel, wie am Bedienteil: setzt Filter-Intervall (0x3D) und
+  # Restlaufzeit (0x3E) in einem Frame auf das aktuelle Intervall. Nur nach einem echten Wechsel drücken.
+  - platform: template
+    name: "Filter-Reset"
+    icon: mdi:air-filter
+    entity_category: config
+    on_press:
+      - lambda: id(kwl_bus).send_filter_reset();
 
   # Komplett-Abzug anfordern wie das Bedienteil am Ende der Anmeldung (01 01 83 00 an den Master),
   # einmal im Sendefenster. Der Master schickt alle Register, danach melden sich die Geräte neu.
