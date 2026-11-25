@@ -13,6 +13,14 @@ beschreibt ein anderes Gerät und weicht in Details ab (z. B. beim 9. Bit).
 - Ein normaler UART sieht das 9. Bit nicht. Empfangen geht trotzdem mit 8N1 bzw. 8S1,
   senden nicht: Der ESP32-UART kann die Parität nicht lückenlos mitten im Frame umschalten.
   Deshalb sendet die Komponente über den RMT-Baustein.
+- **Die Geräte prüfen das 9. Bit** (Test 2026-11-25, gleiches Frame, sonst byteweise identisch):
+  - 9. Bit auf Byte 0 und 1: angenommen (Quittung 86/87, Lüftergerät meldet `29 00 xx`)
+  - nur auf Byte 0: verworfen, der Master pollt nach ~27 ms normal weiter
+  - ganz ohne: verworfen, der Master wartet das Fenster ab, als wäre nichts gekommen
+
+  Vermutlich markiert das 9. Bit auf Byte 0 den Frame-Anfang und auf Byte 1 das Adressbyte.
+  Ein USB- oder Ethernet-RS485-Adapter mit fester Parität (8S1/8M1) kann deshalb nicht senden,
+  das Timing des Sendefensters wäre dagegen unkritisch.
 
 ## Frame
 

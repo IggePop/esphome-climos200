@@ -60,9 +60,14 @@ class Climos : public Component, public uart::UARTDevice {
   bool send_operating_mode(uint8_t mode);
   // Die zuletzt gesehene (bzw. gespeicherte) Betriebsart senden, ändert also nichts
   bool send_current_operating_mode();
+  // Test: die laufende Betriebsart senden (ändert nichts), aber mit dem 9. Bit nur auf den ersten
+  // `marked` Bytes (0 = gar nicht, 1 = nur Byte 0, 2 = normal). Zeigt, ob die Geräte das 9. Bit prüfen.
+  bool send_marking_test(uint8_t marked);
   // t_som (Ablufttemperatur-Schwelle der Sommerlüftung) setzen wie das Bedienteil:
   // 01 00 85 08 [CRC] 1B 00 [0x1B aktuell] 41 00 [Wert in 0,1 °C]. Braucht den aktuellen Wert von 0x1B.
   bool send_summer_threshold(float celsius);
+  // Dauer der Stoßlüftung setzen wie das Bedienteil: 01 00 85 03 [CRC] 3B 00 [Minuten], 15..120 in 5er-Schritten
+  bool send_boost_duration(float minutes);
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -164,6 +169,9 @@ class Climos : public Component, public uart::UARTDevice {
   ConfirmKind pending_kind_{CONFIRM_NONE};  // vorgemerktes Frame
   uint8_t pending_mode_{0};                 // Betriebsart (nur CONFIRM_MODE)
   std::string pending_label_;               // z.B. "Stufe 2" oder "t_som 24.5 °C"
+  uint8_t next_marked_bytes_{2};            // für die nächste Anforderung (nur Test weicht ab)
+  uint8_t pending_marked_bytes_{2};
+  uint8_t sent_marked_bytes_{2};
   ConfirmKind confirm_kind_{CONFIRM_NONE};  // gesendet, wartet auf Bestätigung
   uint8_t confirm_mode_{0};
   std::string confirm_label_;

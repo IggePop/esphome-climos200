@@ -229,6 +229,15 @@ machen zu müssen.
 - [ ] Nacheinander umsetzen, was Phase 0 gezeigt hat, jeweils mit Rücklesen
 - [ ] Wochenprogramm zuletzt: pro Sendefenster ein Frame, Rolle von 0x62 und erneutem `28` klären
 
+- [x] Mitschnitt Dauer Stoßlüftung am Bedienteil (2026-11-25, 15 -> 20 -> 15 min):
+      - Frame `01 00 85 03 [CRC] 3B 00 <Minuten>` nach Poll 04, ohne weitere Objekte. Bereich am Bedienteil
+        15..120 min in 5er-Schritten. Jedes Drücken von Bestätigen sendet das Frame erneut (9x bei 20 min)
+      - **Alle 11 Frames des Bedienteils quittiert das Lüftergerät (86 an 08)**, kein Wert-Echo
+      - `62 00 00` kommt 4..15 s **vor** der Änderung (Menü geöffnet?), wird nicht quittiert
+      - Nach Verlassen des Menüs sendet das Bedienteil die Betriebsart neu (`28 00 06`)
+- [ ] Dauer Stoßlüftung setzen: `number` „Dauer Stoßlüftung setzen“ (15..120, Schritt 5) gebaut und geflasht
+      (2026-11-25, Frame gegen Mitschnitt geprüft), am Bus noch nicht getestet
+
 ## Test: Braucht der Bus das 9. Bit? (offen)
 
 Frage: Prüfen die Geräte beim Empfang das 9. Bit (gesetzt auf Byte 0 und 1) und dulden sie eine Lücke im
@@ -246,6 +255,27 @@ nach `FF` reicht dafür, etwa 130 ms Spielraum). Wichtig für Nachbauten ohne ES
       noch angenommen wird
 - Risiko gering: Frames werden im Fenster gesendet. Wird ein Frame verworfen, passiert nichts. Im schlimmsten
   Fall stört ein falsch erkanntes Frame kurz den Bus, dann "Senden aktiv" aus.
+
+## Test: Prüfen die Geräte das 9. Bit?
+
+Hintergrund: Mit dem Sendefenster nach `FF` (~158 ms) wäre das Timing auch für USB- oder
+RS485-Ethernet-Adapter machbar. Hindernis ist das 9. Bit auf Byte 0 und 1: Ein normaler UART kann die
+Parität nicht lückenlos mitten im Frame umschalten. Wenn die Geräte das 9. Bit nicht prüfen, ginge Senden
+auch mit einem Adapter im Modus 8S1 (alle Bytes 9. Bit = 0).
+
+- [x] Testknöpfe eingebaut (2026-11-25): „Test 9. Bit nur Byte 0“, „Test 9. Bit ohne“, „Test 9. Bit normal“.
+      Senden die laufende Betriebsart (ändert nichts), Kodierung per Host-Test geprüft
+- [x] Am Bus getestet (2026-11-25), Betriebsart Automatik, Debug-Empfänger sah alle 7 Frames byteweise korrekt:
+      - **normal (Byte 0+1):** angenommen, 86/87 an 04 und 08, Lüftergerät `29 00 06` nach 158 ms
+      - **nur Byte 0 (3 Versuche):** keine Quittung. Master übergeht das Frame und pollt nach ~27 ms weiter,
+        als wäre es eine normale Antwort im Ablauf
+      - **ohne 9. Bit (3 Versuche):** keine Quittung, Master wartet das Fenster ab (~140 ms bis zum nächsten Poll),
+        als wäre gar nichts gekommen
+      - Bus blieb gesund (keine neuen verworfenen Bytes)
+- [x] **Ergebnis: Das 9. Bit wird geprüft, auf Byte 0 und Byte 1.** Ein UART mit fester Parität (8S1/8M1)
+      kann damit nicht senden, USB- und Ethernet-Adapter scheiden aus. Lückentest entfällt.
+      Interpretation: 9. Bit auf Byte 0 = Frame-Anfang, auf Byte 1 = Adressbyte (Ziel)
+- [ ] Testknöpfe danach wieder aus kwl.yaml entfernen
 
 ## Phase 4: ESP als zweites Bedienteil (optional)
 

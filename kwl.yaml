@@ -65,9 +65,10 @@ select:
             }
           }
 
-# Einstellwerte (Phase 3, in Erprobung). Zeigen den Wert vom Bus, senden nur bei Eingabe.
-# Ergebnis in "Letztes Senden": "angenommen" = Master hat das Frame quittiert (87 mit unserer CRC).
-# Ob Bedienteil/Lüftergerät den Wert übernehmen, zeigt erst die Anzeige am Bedienteil.
+# Einstellwerte. Zeigen den Wert vom Bus, senden nur bei Eingabe. Kein Gerät meldet Einstellwerte
+# zurück (auch nicht bei Änderung am Bedienteil). Ergebnis in "Letztes Senden": "angenommen
+# (Lüftergerät)" = das Lüftergerät hat den Empfang quittiert (86/87), erst dann übernimmt der
+# Sensor den Wert. Quittiert nur das Bedienteil, wird wiederholt (max. 3 Versuche).
 number:
   - platform: template
     name: "Sommerlüftung Schwelle setzen"
@@ -88,6 +89,50 @@ number:
     set_action:
       - lambda: id(kwl_bus).send_summer_threshold(x);
 
+  # Bereich und Schritt wie am Bedienteil: 15..120 min in 5er-Schritten
+  - platform: template
+    name: "Dauer Stoßlüftung setzen"
+    state_topic: kwl/number/dauer_stosslueftung_setzen/state
+    command_topic: kwl/number/dauer_stosslueftung_setzen/command
+    icon: mdi:timer-cog-outline
+    unit_of_measurement: "min"
+    min_value: 15
+    max_value: 120
+    step: 5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(dauer_stoss).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_boost_duration(x);
+
+# Test: Prüfen die Geräte das 9. Bit? Sendet die laufende Betriebsart (ändert nichts) mit dem
+# 9. Bit nur auf Byte 0 bzw. ganz ohne, "normal" zum Vergleich. Ergebnis in "Letztes Senden"
+# und im Log ("Quittung von .."). Wird es angenommen, prüfen die Geräte das 9. Bit nicht, dann
+# ginge zum Senden auch ein USB-/Ethernet-Adapter mit 8S1. Nach dem Test entfernen.
+button:
+  - platform: template
+    name: "Test 9. Bit nur Byte 0"
+    icon: mdi:test-tube
+    entity_category: diagnostic
+    on_press:
+      - lambda: id(kwl_bus).send_marking_test(1);
+  - platform: template
+    name: "Test 9. Bit ohne"
+    icon: mdi:test-tube
+    entity_category: diagnostic
+    on_press:
+      - lambda: id(kwl_bus).send_marking_test(0);
+  - platform: template
+    name: "Test 9. Bit normal"
+    icon: mdi:test-tube
+    entity_category: diagnostic
+    on_press:
+      - lambda: id(kwl_bus).send_marking_test(2);
+
 # Für Home Assistant einkommentieren (hier wird ESPHome ohne Home Assistant über MQTT betrieben).
 #api:
 #  encryption:
@@ -97,7 +142,7 @@ ota:
   - platform: esphome
     password: !secret ota_password
 
-# Webserver mit Login, sonst ließen sich "Senden aktiv" und "Betriebsart setzen" ohne
+# Webserver mit Login, sonst ließen sich "Senden aktiv" und die Einstellungen ohne
 # Anmeldung bedienen.
 web_server:
   port: 80
@@ -107,7 +152,7 @@ web_server:
 
 # Umlaute in Namen werden im Topic zu "_" (aus "Außenluft" wird "au__enluft");
 # betroffene Entitäten haben deshalb ein eigenes state_topic.
-# Broker mit Login verwenden: über MQTT lassen sich "Senden aktiv" und "Betriebsart setzen"
+# Broker mit Login verwenden: über MQTT lassen sich "Senden aktiv" und die Einstellungen
 # bedienen, ein anonymer Broker würde das jedem Client im Netz erlauben.
 mqtt:
   broker: !secret mqtt_broker
@@ -147,7 +192,8 @@ climos:
   # (das Waveshare-Modul gibt das eigene Senden nicht auf RXD zurück).
   tx_pin: GPIO4
   # Ergebnis der letzten Umschaltung: vorgemerkt / gesendet (Versuch n) / bestätigt /
-  # angenommen / keine Bestätigung / kein Sendefenster / gesperrt
+  # angenommen (Lüftergerät) / nur vom Bedienteil quittiert / keine Bestätigung /
+  # kein Sendefenster / gesperrt
   send_status:
     name: "Letztes Senden"
   # Zuordnung abgeleitet aus Wärmerückgewinnung (~80 %) bei geschlossenem Bypass
@@ -231,6 +277,7 @@ climos:
   stage_3_percent:
     name: "Stufe 3 Leistung"
   boost_duration:
+    id: dauer_stoss
     name: "Dauer Stoßlüftung"
     state_topic: kwl/sensor/dauer_stosslueftung/state
   away_interval:
