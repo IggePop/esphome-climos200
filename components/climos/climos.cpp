@@ -501,13 +501,16 @@ void Climos::handle_frame_(const uint8_t *frame, size_t size) {
 
   dump_frame_("Frame", frame, size);
 
+  // Die Quittungsabfragen zu unserem Frame kommen direkt danach, vor dem nächsten Einzel-Poll.
+  // Spätere 86 gehören zu anderen Frames und zählen nicht.
   if (ack_track_active_) {
     if (cmd == CMD_CONFIRM_REQUEST)
       ack_track_mask_ |= dst == ADDR_PANEL ? 1 : (dst == ADDR_FAN_UNIT ? 2 : 4);
-    if (cmd == CMD_POLL && dst != ADDR_BROADCAST && ack_track_first_poll_ == 0)
-      ack_track_first_poll_ = dst;
-    if (cmd == CMD_POLL && dst == ADDR_BROADCAST)
+    if (cmd == CMD_POLL) {
+      if (dst != ADDR_BROADCAST)
+        ack_track_first_poll_ = dst;
       finish_ack_track_();
+    }
   }
   if (cmd == CMD_POLL) {
     if (dst != ADDR_BROADCAST)
