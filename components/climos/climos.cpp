@@ -913,6 +913,10 @@ void Climos::set_write_enabled(bool enabled) {
     return;
   write_enabled_ = enabled;
   ESP_LOGW(TAG, "Senden %s", enabled ? "aktiv" : "GESPERRT");
+  if (!enabled && !queue_.empty()) {
+    ESP_LOGW(TAG, "Warteschlange geleert (%u Einträge)", static_cast<unsigned int>(queue_.size()));
+    queue_.clear();
+  }
 }
 
 bool Climos::send_operating_mode(uint8_t mode) {
@@ -1147,7 +1151,8 @@ bool Climos::send_clock(const ESPTime &now) {
   // das passt, ob der Master den Wochentag umrechnet oder aus dem Datum bestimmt.
   const uint8_t weekday = (now.day_of_week + 5) % 7;
   const uint8_t panel_weekday = now.day_of_week - 1;
-  seq_payloads_ = {
+  QueuedRequest req;
+  req.frames = {
       {static_cast<uint8_t>(OBJ_DATE & 0xFF), static_cast<uint8_t>(OBJ_DATE >> 8), panel_weekday, now.day_of_month,
        now.month, static_cast<uint8_t>(now.year % 100)},
       {static_cast<uint8_t>(OBJ_TIME & 0xFF), static_cast<uint8_t>(OBJ_TIME >> 8), now.second, now.minute, now.hour},
@@ -1155,19 +1160,14 @@ bool Climos::send_clock(const ESPTime &now) {
   char label[48];
   std::snprintf(label, sizeof(label), "Uhr %s %02u.%02u.%04u %02u:%02u", WEEKDAYS[weekday], now.day_of_month,
                 now.month, now.year, now.hour, now.minute);
-  seq_index_ = 0;
-  seq_label_ = label;
-  seq_active_ = true;
-  clock_sync_active_ = true;
-  clock_base_seconds_ = seconds;
-  clock_base_ms_ = millis();
-  std::string first = seq_label_ + " (1/2)";
-  if (!queue_request_(seq_payloads_[0].data(), seq_payloads_[0].size(), CONFIRM_ECHO, 0, first, true)) {
-    seq_active_ = false;
-    clock_sync_active_ = false;
-    return false;
-  }
-  return true;
+  req.key = OBJ_DATE;
+  req.kind = CONFIRM_ECHO;
+  req.label = label;
+  // Bezugszeit jetzt: wartet die Anforderung, wird die Uhrzeit beim Senden entsprechend weitergezählt
+  req.clock = true;
+  req.clock_base_seconds = seconds;
+  req.clock_base_ms = millis();
+  return enqueue_(std::move(req));
 }
 
 bool Climos::sync_clock_if_needed(const ESPTime &now) {
@@ -1226,21 +1226,12 @@ void Climos::refresh_pending_clock_() {
 }
 
 bool Climos::request_full_dump() {
-  static const uint8_t NO_PAYLOAD[1] = {0};
-  if (!write_enabled_) {
-    publish_send_status_("gesperrt: Komplett-Abzug anfordern");
-    return false;
-  }
-  confirm_kind_ = CONFIRM_NONE;
-  confirm_attempt_ = 0;
-  seq_active_ = false;
-  clock_sync_active_ = false;
-  if (!queue_frame_(FRAME_START, 0x01, 0x83, NO_PAYLOAD, 0)) {
-    publish_send_status_("Fehler: Komplett-Abzug anfordern");
-    return false;
-  }
-  publish_send_status_("vorgemerkt (ohne Bestätigung): Komplett-Abzug anfordern");
-  return true;
+  QueuedRequest req;
+  req.key = 0x8300;
+  req.cmd = 0x83;
+  req.label = "Komplett-Abzug anfordern";
+  req.frames.emplace_back();
+  return enqueue_(std::move(req));
 }
 
 bool Climos::send_system_power(bool on) {
@@ -1291,20 +1282,104 @@ bool Climos::send_schedule(uint8_t day_mask, const std::string &text) {
     publish_send_status_(("ungültig: " + group + " (" + error + ")").c_str());
     return false;
   }
-  seq_payloads_ = build_schedule_payloads(day_mask, levels);
-  seq_index_ = 0;
-  seq_label_ = group;
-  seq_active_ = true;
-  char label[48];
-  std::snprintf(label, sizeof(label), "%s (1/%u)", group.c_str(), static_cast<unsigned int>(seq_payloads_.size()));
-  if (!queue_request_(seq_payloads_[0].data(), seq_payloads_[0].size(), CONFIRM_ACK, 0, label, true)) {
-    seq_active_ = false;
+  QueuedRequest req;
+  req.key = 0x8000 | day_mask;
+  req.kind = CONFIRM_ACK;
+  req.label = group;
+  req.frames = build_schedule_payloads(day_mask, levels);
+  return enqueue_(std::move(req));
+}
+
+static const size_t MAX_QUEUED_REQUESTS = 8;
+
+bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
+                            const std::string &label) {
+  QueuedRequest req;
+  req.key = size >= 2 ? static_cast<uint16_t>(payload[0] | (payload[1] << 8)) : 0;
+  req.kind = kind;
+  req.mode = mode;
+  req.label = label;
+  req.frames.emplace_back(payload, payload + size);
+  return enqueue_(std::move(req));
+}
+
+bool Climos::enqueue_(QueuedRequest &&req) {
+  if (!write_enabled_) {
+    ESP_LOGW(TAG, "Nicht vorgemerkt: Senden gesperrt");
+    publish_send_status_(("gesperrt: " + req.label).c_str());
     return false;
+  }
+  if (!sender_.is_ready()) {
+    ESP_LOGW(TAG, "Nicht vorgemerkt: kein Sender (tx_pin fehlt oder RMT-Fehler)");
+    publish_send_status_(("Fehler (kein Sender): " + req.label).c_str());
+    return false;
+  }
+  for (auto &queued : queue_) {
+    if (queued.key == req.key) {
+      ESP_LOGI(TAG, "Warteschlange: %s ersetzt %s", req.label.c_str(), queued.label.c_str());
+      const std::string label = req.label;
+      queued = std::move(req);
+      publish_send_status_(("in Warteschlange: " + label).c_str());
+      return true;
+    }
+  }
+  if (queue_.size() >= MAX_QUEUED_REQUESTS) {
+    ESP_LOGW(TAG, "Warteschlange voll, %s verworfen", req.label.c_str());
+    publish_send_status_(("Warteschlange voll: " + req.label).c_str());
+    return false;
+  }
+  const uint16_t key = req.key;
+  const std::string label = req.label;
+  queue_.push_back(std::move(req));
+  start_next_request_();
+  for (const auto &queued : queue_) {
+    if (queued.key == key) {
+      ESP_LOGI(TAG, "Warteschlange: %s wartet (%u Einträge)", label.c_str(), static_cast<unsigned int>(queue_.size()));
+      publish_send_status_(("in Warteschlange: " + label).c_str());
+      break;
+    }
   }
   return true;
 }
 
-bool Climos::queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
+void Climos::start_next_request_() {
+  if (engine_busy_() || queue_.empty() || !write_enabled_)
+    return;
+  QueuedRequest req = std::move(queue_.front());
+  queue_.pop_front();
+  if (req.cmd != CMD_DATA) {
+    // Komplett-Abzug anfordern: 01 01 83 00 an den Master, ohne Bestätigung
+    static const uint8_t NO_PAYLOAD[1] = {0};
+    if (!queue_frame_(FRAME_START, 0x01, req.cmd, NO_PAYLOAD, 0)) {
+      publish_send_status_(("Fehler: " + req.label).c_str());
+      return;
+    }
+    publish_send_status_(("vorgemerkt (ohne Bestätigung): " + req.label).c_str());
+    return;
+  }
+  if (req.frames.empty())
+    return;
+  if (req.frames.size() > 1 || req.clock) {
+    // Folge (Wochenprogramm, Uhr): läuft vollständig durch, die Warteschlange wartet so lange
+    seq_payloads_ = std::move(req.frames);
+    seq_index_ = 0;
+    seq_label_ = req.label;
+    seq_active_ = true;
+    clock_sync_active_ = req.clock;
+    clock_base_seconds_ = req.clock_base_seconds;
+    clock_base_ms_ = req.clock_base_ms;
+    char label[64];
+    std::snprintf(label, sizeof(label), "%s (1/%u)", seq_label_.c_str(), static_cast<unsigned int>(seq_payloads_.size()));
+    if (!start_request_(seq_payloads_[0].data(), seq_payloads_[0].size(), req.kind, req.mode, label, true)) {
+      seq_active_ = false;
+      clock_sync_active_ = false;
+    }
+    return;
+  }
+  start_request_(req.frames[0].data(), req.frames[0].size(), req.kind, req.mode, req.label, false);
+}
+
+bool Climos::start_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode,
                             const std::string &label, bool keep_sequence) {
   if (!keep_sequence) {
     seq_active_ = false;
@@ -1362,7 +1437,7 @@ void Climos::confirm_success_(ConfirmKind kind, const char *how) {
                     static_cast<unsigned int>(seq_payloads_.size()));
       ESP_LOGI(TAG, "%s: Frame %u/%u angenommen", seq_label_.c_str(), static_cast<unsigned int>(seq_index_),
                static_cast<unsigned int>(seq_payloads_.size()));
-      queue_request_(seq_payloads_[seq_index_].data(), seq_payloads_[seq_index_].size(), kind, 0, next, true);
+      start_request_(seq_payloads_[seq_index_].data(), seq_payloads_[seq_index_].size(), kind, 0, next, true);
       return;
     }
     seq_active_ = false;
@@ -1374,9 +1449,15 @@ void Climos::confirm_success_(ConfirmKind kind, const char *how) {
 }
 
 void Climos::publish_send_status_(const char *what) {
-  ESP_LOGI(TAG, "Letztes Senden: %s", what);
+  std::string text = what;
+  if (!queue_.empty()) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), " (+%u in Warteschlange)", static_cast<unsigned int>(queue_.size()));
+    text += buf;
+  }
+  ESP_LOGI(TAG, "Letztes Senden: %s", text.c_str());
   if (send_status_text_sensor_ != nullptr)
-    send_status_text_sensor_->publish_state(what);
+    send_status_text_sensor_->publish_state(text);
 }
 
 bool Climos::queue_frame_(uint8_t first, uint8_t dst, uint8_t cmd, const uint8_t *payload, uint8_t payload_size) {
@@ -1461,6 +1542,7 @@ void Climos::loop_confirm_(uint32_t now) {
 void Climos::loop_send_() {
   const uint32_t now = millis();
   loop_confirm_(now);
+  start_next_request_();
   if (pending_size_ == 0)
     return;
 

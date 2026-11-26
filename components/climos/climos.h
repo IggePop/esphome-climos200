@@ -14,6 +14,7 @@
 #include "bus_sender.h"
 #include "schedule_codec.h"
 
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -102,7 +103,7 @@ class Climos : public Component, public uart::UARTDevice {
   // Sendet nichts, wenn die Uhr der Anlage oder die NTP-Zeit unbekannt ist. true = Stellen vorgemerkt.
   bool sync_clock_if_needed(const ESPTime &now);
   // Läuft gerade eine Anforderung (vorgemerkt, wartet auf Bestätigung oder mehrteilig)?
-  bool is_busy() const { return pending_size_ > 0 || confirm_kind_ != CONFIRM_NONE || seq_active_; }
+  bool is_busy() const { return engine_busy_() || !queue_.empty(); }
   // Komplett-Abzug anfordern wie das Bedienteil am Ende der Anmeldung (01 01 83 00 an den Master).
   // Einmal im Sendefenster, ohne Bestätigung und ohne Wiederholung. Der Master antwortet mit 01 00 83 00 und
   // dem Abzug, danach melden sich die Geräte neu: der Lüfter geht dabei etwa 13 s aus (2026-11-25).
@@ -184,8 +185,27 @@ class Climos : public Component, public uart::UARTDevice {
   //       Zeit-Frame alle 5 s); 86/87 gibt es dafür nicht. Quittung von 08 zählt auch.
   enum ConfirmKind : uint8_t { CONFIRM_NONE, CONFIRM_MODE, CONFIRM_ACK, CONFIRM_SYSTEM, CONFIRM_ECHO };
   void check_echo_confirm_(uint16_t id, const uint8_t *value);
-  bool queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label,
-                      bool keep_sequence = false);
+  // Anforderung in die Warteschlange stellen (ein Frame); gleiches Register ersetzt den wartenden Eintrag
+  bool queue_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label);
+  // Anforderung sofort starten (nur wenn nichts läuft, aus der Warteschlange oder für das nächste Frame einer Folge)
+  bool start_request_(const uint8_t *payload, uint8_t size, ConfirmKind kind, uint8_t mode, const std::string &label,
+                      bool keep_sequence);
+  // Warteschlange: eine Anforderung = ein oder mehrere Frames (Wochenprogramm, Uhr), der Reihe nach abgearbeitet
+  struct QueuedRequest {
+    uint16_t key{0};  // Register (bzw. 0x8000 | Tagesmaske, 0x8300 Komplett-Abzug): gleicher Schlüssel ersetzt
+    ConfirmKind kind{CONFIRM_NONE};
+    uint8_t mode{0};
+    uint8_t cmd{0x85};
+    std::string label;
+    std::vector<std::vector<uint8_t>> frames;
+    bool clock{false};
+    uint32_t clock_base_seconds{0};
+    uint32_t clock_base_ms{0};
+  };
+  bool enqueue_(QueuedRequest &&req);
+  void start_next_request_();
+  bool engine_busy_() const { return pending_size_ > 0 || confirm_kind_ != CONFIRM_NONE || seq_active_; }
+  std::deque<QueuedRequest> queue_;
   void confirm_success_(ConfirmKind kind, const char *how);
   // Wartet eine Wiederholung dieses Typs (Bestätigung kam nach Ablauf der Frist)?
   bool retry_pending_(ConfirmKind kind) const {
