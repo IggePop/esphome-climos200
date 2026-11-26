@@ -372,11 +372,25 @@ machen zu müssen.
       - Bereiche laut User: t_som 20..30 °C, Hysterese 0,5..18 K, inaktiv unter 12..20 °C, je 0,5er-Schritte
 - [x] Umgesetzt (kompiliert, Flash + Test offen): number "Sommerlüftung Hysterese setzen" (0x43),
       "Sommerlüftung inaktiv unter setzen" (0x49), t_som jetzt allein (ohne 0x1B), Bereich 20..30
+- [x] Geflasht und vom ESP getestet (2026-11-26, 20:50-20:51), alle 6 Frames byte-gleich mit dem Bedienteil
+      (gleiche CRC) und vom Lüftergerät quittiert, jeweils im 1. Versuch: H_som 1,0/0,5 (`43 00 0A`/`05`),
+      t_som 25,5/25,0 allein (`41 00 FF 00`/`FA 00`), inaktiv unter 13,5/13,0 (`49 00 87 00`/`82 00`).
+      Bedienteil schickt t_som mal allein, mal mit 0x1B (`1B 00 F3 00 41 00 FA 00`), beides geht.
+      Knopf "Log kopieren" funktioniert (Uhrzeit vom Browser, im Hintergrund-Tab gesammelt)
 - [x] **EWT-Klappe vorhanden** am TFT ein/aus (2026-11-26, 20:22): `24 00 04` (ein) -> `24 00 00` (aus).
       0x24 ist also eine Ausstattungs-Konfiguration, Bit 2 = EWT-Klappe vorhanden. Wieder aus (nicht verbaut). Nicht senden
 - [x] **Bypass vorhanden** am TFT aus/ein (2026-11-26, 20:27): `1B 00 73 00` <-> `1B 00 77 00`, also **0x1B Bit 2 =
       Bypass vorhanden**. Endstand 73 (kein Bypass, richtig). Auffällig: Bit 7 (Sommerlüftung freigegeben) ist dabei 0,
       am 25.11. stand F3 -> User fragen, ob bewusst ausgeschaltet. 0x1B bekannt: Bit 2 Bypass, Bit 7 Sommerlüftung
+- [x] **Defroster-Typ** am TFT (2026-11-26, 20:35): Elektroden-, PTC-, Sole-Defroster je ein/aus.
+      Bedienteil sendet `1E 00 0C 7F 00 0n` (ein) bzw. `1E 00 00 7F 00 00` (aus):
+      **0x7F = Defroster-Typ** (0 keiner, 1 Elektrode, 2 PTC, 3 Sole), **0x1E = 0x0C wenn ein Defroster eingetragen**
+      (Bedeutung von 0C offen). Original laut Abzug 1E = 00, 7F = 00, Adresse 09 wird nicht gepollt -> kein Defroster
+      verbaut, Endstand stimmt wieder. **Nebenwirkung:** schon beim ersten "ein" 08 -> `03`, 0x1A -> `00` (Lüfter aus),
+      Meldung **0xC4** (0x09 aktuell, 0x0A/0B/0C letzte Meldung 26.11.26 20:35:46), nach "aus" Neustart-Kennung
+      (0x88/0x8B), 08 -> `01`, 0x1A `01` -> `0D`, 28/29 = 06. 0xC4 vermutlich "Kommunikationsfehler Defroster" (TFT fragen).
+      Nicht senden
+- [x] **Nummer des Bedienteils** am TFT: keine Frames außer den normalen Temperaturen -> nicht geändert oder nicht am Bus
 - [x] **Bypass-Temperaturen** (2026-11-26, 20:30, je +0,5 und zurück): dieselben Register wie die Sommerlüftung,
       dazu 0x42: obere Schwelle = **0x41** (`FF`->`FA`, 25,5->25,0), **untere Schwelle = 0x42** (2 Byte, 0,1 °C,
       `B9`->`B4` = 18,5->18,0, Bereich 13..19,5), Hysterese = **0x43** (`0A`->`05`), geschlossen unter = **0x49**
