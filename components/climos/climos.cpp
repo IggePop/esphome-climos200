@@ -550,7 +550,8 @@ void Climos::handle_frame_(const uint8_t *frame, size_t size) {
         confirm_success_(CONFIRM_ACK, "Quittung des Lüftergeräts (87)");
       } else {
         acked_by_panel_only_ = true;
-        ESP_LOGW(TAG, "Nur von %02X quittiert, nicht vom Lüftergerät: wird wiederholt", from);
+        // Das Lüftergerät quittiert oft kurz danach selbst; gewarnt wird erst, wenn die Frist abläuft
+        ESP_LOGD(TAG, "Quittung von %02X, warte auf das Lüftergerät", from);
       }
     }
   }
@@ -1389,8 +1390,8 @@ void Climos::loop_confirm_(uint32_t now) {
     return;
   }
   // Wiederholen: dasselbe Frame im nächsten Fenster
-  ESP_LOGW(TAG, "Keine Bestätigung nach Versuch %u/%u, wiederhole", static_cast<unsigned int>(confirm_attempt_),
-           static_cast<unsigned int>(max_attempts));
+  ESP_LOGW(TAG, "Keine Bestätigung nach Versuch %u/%u%s, wiederhole", static_cast<unsigned int>(confirm_attempt_),
+           static_cast<unsigned int>(max_attempts), acked_by_panel_only_ ? " (nur vom Bedienteil quittiert)" : "");
   std::memcpy(pending_frame_, sent_frame_, sent_size_);
   pending_size_ = sent_size_;
   pending_since_ = now;
