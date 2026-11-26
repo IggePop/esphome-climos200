@@ -372,6 +372,15 @@ machen zu müssen.
       - Bereiche laut User: t_som 20..30 °C, Hysterese 0,5..18 K, inaktiv unter 12..20 °C, je 0,5er-Schritte
 - [x] Umgesetzt (kompiliert, Flash + Test offen): number "Sommerlüftung Hysterese setzen" (0x43),
       "Sommerlüftung inaktiv unter setzen" (0x49), t_som jetzt allein (ohne 0x1B), Bereich 20..30
+- [x] **EWT-Klappe vorhanden** am TFT ein/aus (2026-11-26, 20:22): `24 00 04` (ein) -> `24 00 00` (aus).
+      0x24 ist also eine Ausstattungs-Konfiguration, Bit 2 = EWT-Klappe vorhanden. Wieder aus (nicht verbaut). Nicht senden
+- [x] **Bypass vorhanden** am TFT aus/ein (2026-11-26, 20:27): `1B 00 73 00` <-> `1B 00 77 00`, also **0x1B Bit 2 =
+      Bypass vorhanden**. Endstand 73 (kein Bypass, richtig). Auffällig: Bit 7 (Sommerlüftung freigegeben) ist dabei 0,
+      am 25.11. stand F3 -> User fragen, ob bewusst ausgeschaltet. 0x1B bekannt: Bit 2 Bypass, Bit 7 Sommerlüftung
+- [x] **Bypass-Temperaturen** (2026-11-26, 20:30, je +0,5 und zurück): dieselben Register wie die Sommerlüftung,
+      dazu 0x42: obere Schwelle = **0x41** (`FF`->`FA`, 25,5->25,0), **untere Schwelle = 0x42** (2 Byte, 0,1 °C,
+      `B9`->`B4` = 18,5->18,0, Bereich 13..19,5), Hysterese = **0x43** (`0A`->`05`), geschlossen unter = **0x49**
+      (`87`->`82`). Anlage ohne Bypass: 0x42 nur dokumentiert, nicht gesendet
 - [x] Webserver auf `auth: type: digest` umgestellt (ab ESPHome 2027.1 Standard), capture.py kann Digest
 
 ## Test: Prüfen die Geräte das 9. Bit?

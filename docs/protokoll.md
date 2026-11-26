@@ -123,6 +123,8 @@ Im Menü „Sommerlüftung ohne Bypass“ schickt das Bedienteil jeden Wert einz
 01 00 85 04 .. .. 49 00 82 00      inaktiv unter 13,0 °C      (12–20 °C, Schritt 0,5)
 ```
 
+Das Menü „Bypass-Temperaturen“ (für Geräte mit Bypass) nutzt dieselben Register: obere Schwelle 0x41,
+Hysterese 0x43, „Bypass geschlossen unter“ 0x49, dazu die untere Schwelle 0x42 (13–19,5 °C).
 Die Komponente sendet t_som jetzt ebenso allein. Früher gesehen (aus einem anderen Menü?):
 
 
@@ -260,7 +262,8 @@ Ein Tag (z. B. Mittwoch):
 | `0x1C` | 11 | Artikelnummer Defroster (Adresse 09), z. B. `ST00064E26E`¹ |
 | `0x1D` | 1 | Laufzustand: 1 Betrieb, 0 beim geordneten Abschalten, 3 kurz nach dem Start¹ |
 | `0x1A` | 1 | Status Lüftergerät: Bit 3 Fortluftventilator (bestätigt), Bit 5 Sommerlüftung läuft |
-| `0x1B` | 2 | Freigaben, Bit 7 = Sommerlüftung freigegeben |
+| `0x1B` | 2 | Freigaben/Ausstattung: Bit 2 = Bypass vorhanden, Bit 7 = Sommerlüftung freigegeben |
+| `0x24` | 1 | Ausstattung: Bit 2 = EWT-Klappe vorhanden |
 | `0x26` | 5 | Betriebszeit |
 | `0x27` | 1 | Gefahrene Lüfterstufe (in Automatik die vom Programm gewählte) |
 | `0x28` | 1 | Betriebsart |
@@ -270,10 +273,11 @@ Ein Tag (z. B. Mittwoch):
 | `0x3B` | 1 | Dauer Stoßlüftung (min) |
 | `0x3C` | 1 | Laufzeit pro Stunde bei Abwesend (min): 15, 30 oder 45 |
 | `0x3D` / `0x3E` | 5 | Filter-Intervall (30–180 Tage, Schritt 10) / Filter-Restlaufzeit. Reset setzt beide, Restlaufzeit bleibt bei 0 stehen¹ |
-| `0x41` | 2 | t_som, Schwelle Sommerlüftung (0,1 °C) |
-| `0x43` | 1 | H_som, Hysterese Sommerlüftung (0,1 K) |
+| `0x41` | 2 | t_som, Schwelle Sommerlüftung = obere Bypass-Schwelle (0,1 °C, 20–30) |
+| `0x42` | 2 | untere Bypass-Schwelle (0,1 °C, 13–19,5; an dieser Anlage 18,0, ohne Bypass ohne Wirkung) |
+| `0x43` | 1 | H_som, Hysterese Sommerlüftung/Bypass (0,1 K, 0,5–18) |
 | `0x44` | 1 | unbekannt, steigt nach dem Einschalten (Lüfterhochlauf?) |
-| `0x49` | 2 | Minimale Außenlufttemperatur Sommerlüftung (0,1 °C) |
+| `0x49` | 2 | Sommerlüftung inaktiv / Bypass geschlossen unter (Außenluft, 0,1 °C, 12–20) |
 | `0x47` | 2 | Frostschutzschwelle minimale Zulufttemperatur (0,1 °C, Werkseinstellung 5,0 °C) |
 | `0x4A`–`0x4C` | 2 | Frostschutzschwellen Außenluft (0,1 °C): **0x4A sicher, 0x4B eco, 0x4C Feuchte-WT** (Werkseinstellung −2,0 / −3,0 / −3,0 °C; am Bedienteil bestätigt) |
 | `0x4D`–`0x50` | 1 | Kennlinie 0-10-V-Eingang: U_min (0,1 V), n_min %, U_max, n_max (17, 17, 100, 100)¹ |
