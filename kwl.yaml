@@ -438,6 +438,9 @@ web_server:
   # Version 3 mit Gruppen. Diese Seite ist die Wartungsoberfläche, das Dashboard für den Alltag
   # kommt über ioBroker (MQTT).
   version: 3
+  # Knöpfe "Log kopieren" / "Log leeren" unten rechts: liest den Log-Stream mit (letzte 2000 Zeilen)
+  # und kopiert ihn in die Zwischenablage, auch ohne HTTPS
+  js_include: "components/climos/web/log_copy.js"
   sorting_groups:
     - id: grp_betrieb
       name: "Betrieb"

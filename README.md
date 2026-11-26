@@ -89,6 +89,8 @@ Komponente dann sofort.
 5. Der Webserver (Version 3) verlangt einen Login mit Digest-Verfahren und zeigt die Entitäten in Gruppen:
    Betrieb, Temperaturen, Sommerlüftung, Einstellungen, Frostschutz, Filter, Wochenprogramm, Uhr, Diagnose.
    Die Oberfläche lädt der Browser von `oi.esphome.io`; ohne Internet `local: true` setzen.
+   Unten rechts gibt es die Knöpfe „Log kopieren“ und „Log leeren“ (`components/climos/web/log_copy.js`,
+   eingebunden über `js_include`): Sie kopieren die zuletzt empfangenen Logzeilen in die Zwischenablage.
 
 Benötigt ESPHome mit ESP-IDF (getestet mit 2026.10/2026.11, IDF 5.5).
 
@@ -96,7 +98,7 @@ Benötigt ESPHome mit ESP-IDF (getestet mit 2026.10/2026.11, IDF 5.5).
 
 | Pfad | Inhalt |
 |---|---|
-| `components/climos/` | Komponente: Parser, Objekte, Speicher, Sendelogik (`climos.*`), RMT-Sender (`bus_sender.*`), Wochenprogramm Text ↔ Register (`schedule_codec.*`), Messmodus für das 9. Bit (`bit_decoder.*`) |
+| `components/climos/` | Komponente: Parser, Objekte, Speicher, Sendelogik (`climos.*`), RMT-Sender (`bus_sender.*`), Wochenprogramm Text ↔ Register (`schedule_codec.*`), Messmodus für das 9. Bit (`bit_decoder.*`), Knopf „Log kopieren“ für den Webserver (`web/log_copy.js`) |
 | `kwl.yaml` | Gerätekonfiguration (nur `!secret`-Verweise) |
 | `docs/protokoll.md` | Busprotokoll: Frames, Adressen, Befehle, Objekte, Sendefenster |
 | `docs/fahrplan.md` | Fahrplan und Laborbuch mit allen Mitschnitten |
