@@ -407,6 +407,13 @@ machen zu müssen.
         Hardware nicht verbaut
       - **Hinweis Anleitung S. 38: Bedienteil nur spannungsfrei vom Bus trennen, im Betrieb -> Kommunikationsfehler.**
         Der geplante Test "Bedienteil abziehen" also nur mit stromloser Anlage (dann kommt der Abzug ohnehin)
+- [x] **Quittungsabfragen** (2026-11-26): eco -3,5 brauchte 5 Versuche (4x nur 04 gefragt). Statistik eingebaut
+      (Sensor "Quittungsabfragen", Log je Frame). Ergebnis: **Poll vor dem Fenster 04 -> Master fragt 08** (7/7,
+      teils 04+08), **Poll vor 08 -> fragt 04**, nur manchmal danach 08. Der Master fragt das Gerät, das im Zyklus
+      als nächstes dran ist. Umgesetzt: Einstellwerte (CONFIRM_ACK) nur in Fenstern nach Poll an 04, höchstens
+      3 Fenster überspringen; bis zu 8 Versuche; Vormerk-Frist 60 s
+- [x] **Warteschlange** für Sendeanforderungen (8 Einträge, gleiches Register ersetzt, Wochenprogramm/Uhr laufen
+      durch, "Senden aktiv" aus leert). Getestet 23:37: Betriebsart wartete hinter Sommerlüftung, ging danach raus
 - [x] Webserver auf `auth: type: digest` umgestellt (ab ESPHome 2027.1 Standard), capture.py kann Digest
 
 ## Test: Prüfen die Geräte das 9. Bit?

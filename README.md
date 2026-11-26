@@ -52,6 +52,8 @@ Für alles gilt:
 - Mehrere Einstellungen kurz hintereinander landen in einer Warteschlange (bis 8 Einträge) und gehen der Reihe
   nach raus, eine je Fenster (~9 s). Eine erneute Änderung desselben Werts ersetzt den wartenden Eintrag.
   Wochenprogramm und Uhr laufen vollständig durch. „Senden aktiv“ aus leert die Warteschlange.
+- Einstellwerte gehen bevorzugt in ein Fenster, vor dem der Master das Bedienteil abgefragt hat: Dann fragt er
+  die Quittung beim Lüftergerät ab (sonst meist nur beim Bedienteil). Höchstens 3 Fenster werden übersprungen.
 - Ohne Bestätigung wird wiederholt (Einstellwerte bis zu 8 Versuche, sonst 3, Anlage ein/aus nie;
   der Diagnose-Sensor „Quittungsabfragen“ zählt mit, wie oft der Master auch das Lüftergerät fragt).
   Ergebnis im Sensor „Letztes Senden“.

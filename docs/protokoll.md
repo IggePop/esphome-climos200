@@ -88,8 +88,10 @@ fragt den Empfänger, der antwortet mit der CRC des empfangenen Frames:
 
 - Frames des Bedienteils quittiert das Lüftergerät und umgekehrt.
 - Eigene Frames des Masters (z. B. Objekt `0x09`) lässt er von beiden quittieren.
-- Bei Frames im Fenster nach `FF` fragt der Master mal nur das Bedienteil, mal Bedienteil und
-  Lüftergerät nacheinander. Eine Regel ist noch nicht erkennbar.
+- Bei Frames im Fenster nach `FF` fragt der Master das Gerät, das im Abfragezyklus **als nächstes dran
+  ist** (Statistik 2026-11-26): Wurde vor dem `FF`-Poll zuletzt das Bedienteil (04) abgefragt, fragt er das
+  Lüftergerät (08), manchmal zuerst noch 04 (7 von 7). Lag zuletzt 08, fragt er 04 und nur manchmal
+  danach auch 08. Die Komponente sendet Einstellwerte deshalb bevorzugt in Fenstern nach einem Poll an 04.
 - Einstellwerte wie t_som meldet danach kein Gerät zurück, auch nicht, wenn sie am Bedienteil
   geändert wurden.
 - Anmeldung im laufenden Betrieb (beim Wiedereinstecken des Bedienteils gesehen):
@@ -154,8 +156,9 @@ Einzeln gesendet wie vom Bedienteil, jedes Frame quittiert das Lüftergerät (`8
 
 - Beim Einstellen der Stufen schickt das Bedienteil zusätzlich `62 00 0B` / `62 00 0D` (Vorschau Stufe 1/3)
   und zum Schluss `62 00 00`. Nötig ist das nicht, das Lüftergerät übernimmt den Wert auch ohne.
-- Die Quittung fragt der Master bei Frames im Fenster oft nur beim Bedienteil ab (einmal erst im
-  3. Versuch beim Lüftergerät). Die Komponente wiederholt deshalb bis zu 5-mal.
+- Ob der Master die Quittung beim Lüftergerät abfragt, hängt vom Abfragezyklus ab (siehe Zustellquittung).
+  Die Komponente wartet daher auf ein Fenster nach einem Poll an 04 (höchstens 3 Fenster) und wiederholt
+  sonst bis zu 8-mal.
 
 ### Laufzeit Abwesend, Filter, Frostschutz-Schwellen (Mitschnitt 2026-11-25)
 
