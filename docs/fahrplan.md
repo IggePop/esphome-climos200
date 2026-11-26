@@ -349,10 +349,8 @@ machen zu müssen.
 - [x] Umgesetzt (kompiliert, Flash + Test offen): select "Laufzeit Abwesend setzen", number "Filter-Intervall setzen"
       (0x3D allein), Knopf "Filter-Reset" (0x3D + 0x3E = Intervall), Sensor "Frostschutz-Schwelle min. Zuluft" (0x47,
       im Zusatzspeicher; Schlüssel des Zusatzspeichers jetzt fest, IDs nur hinten anfügen)
-- [ ] **Frostschutz eco/sicher am TFT gegenprüfen** (User, 2026-11-26), vor dem Flashen. Zweifel: Anleitung könnte
-      bei den Werkswerten falsch sein. Test: am TFT nur **eco** um 0,5 K ändern (z. B. -3,0 -> -3,5), im Log nachsehen,
-      ob `4B 00 ..` oder `4A 00 ..` kommt, dann zurückstellen. Ergebnis entscheidet die Namen in kwl.yaml
-      (derzeit vorläufig: 0x4A = sicher, 0x4B = eco)
+- [x] **Frostschutz eco/sicher am TFT geprüft** (User, 2026-11-26): TFT zeigt eco -3,0 und sicher -2,0 °C. Am Bus
+      0x4A = -2,0 und 0x4B = -3,0, also **0x4A = sicher, 0x4B = eco** bestätigt (unabhängig von der Anleitung).
 - [x] Geflasht und getestet (2026-11-25, 23:49-23:50):
       - Laufzeit Abwesend 30 min (`3C 00 1E`, 2. Versuch von 08 quittiert) und zurück 15 min (`3C 00 0F`, sofort 08)
       - **Filter-Reset** vom ESP (User wollte bewusst zurücksetzen): `01 00 85 0E 2B 20 3D 00 00 00 28 00 00 3E 00 00 00 28 00 00`
