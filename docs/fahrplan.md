@@ -363,6 +363,15 @@ machen zu müssen.
       dann Knopf/Number "Filter-Reset" mit Intervall 30..180 Tage, Übernahme nach Quittung 08
 - [ ] Laufzeit Abwesend (0x3C) als select 15/30/45, nach kurzem Mitschnitt
 - [ ] 0x09 (aktuelle Meldung) und 0x1D (Laufzustand) als Sensoren auswerten
+- [x] Mitschnitt Sommerlüftung ohne Bypass am TFT (2026-11-26, 18:31, ESP-Log), je +0,5 und zurück:
+      - `62 00 00` beim Öffnen
+      - **Temperatur t_som 0x41** (2 Byte, 0,1 °C): `41 00 FF 00` (25,5) -> `41 00 FA 00` (25,0). **Allein, ohne 0x1B**
+        (im ersten Mitschnitt kam `1B 00 F3 00 41 00 ..` zusammen)
+      - **Hysterese H_som 0x43** (1 Byte, 0,1 K): `43 00 0A` (1,0) -> `43 00 05` (0,5)
+      - **Inaktiv unter t_aul_min 0x49** (2 Byte, 0,1 °C): `49 00 87 00` (13,5) -> `49 00 82 00` (13,0)
+      - Bereiche laut User: t_som 20..30 °C, Hysterese 0,5..18 K, inaktiv unter 12..20 °C, je 0,5er-Schritte
+- [x] Umgesetzt (kompiliert, Flash + Test offen): number "Sommerlüftung Hysterese setzen" (0x43),
+      "Sommerlüftung inaktiv unter setzen" (0x49), t_som jetzt allein (ohne 0x1B), Bereich 20..30
 - [x] Webserver auf `auth: type: digest` umgestellt (ab ESPHome 2027.1 Standard), capture.py kann Digest
 
 ## Test: Prüfen die Geräte das 9. Bit?

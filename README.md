@@ -22,7 +22,7 @@ Frostschutz-Art sowie Datum und Uhrzeit der Anlage mit der Abweichung zur NTP-Ze
 - **Betriebsart** (Stufe 1–3, Stoßlüftung, Abwesend, Automatik) über ein `select`. Erfolg gilt erst,
   wenn das Lüftergerät (`29 00 xx`) oder das Bedienteil (`28 00 xx`) den neuen Wert meldet.
 - **Einstellwerte** über je eine `number`, Bereich und Schritt wie am Bedienteil:
-  - t_som (Schwelle der Sommerlüftung), 18–30 °C in 0,5er-Schritten
+  - Sommerlüftung: t_som 20–30 °C, Hysterese 0,5–18 K, inaktiv unter 12–20 °C, je 0,5er-Schritte
   - Dauer der Stoßlüftung, 15–120 min in 5er-Schritten
   - Leistung Stufe 1 und Stufe 3, 17–100 % (Stufe 2 ist fest 60 %)
   - Frostschutz-Art (eco, sicher, Feuchte-WT) über ein `select`

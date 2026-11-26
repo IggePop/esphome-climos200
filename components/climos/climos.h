@@ -62,9 +62,11 @@ class Climos : public Component, public uart::UARTDevice {
   bool send_operating_mode(uint8_t mode);
   // Die zuletzt gesehene (bzw. gespeicherte) Betriebsart senden, ändert also nichts
   bool send_current_operating_mode();
-  // t_som (Ablufttemperatur-Schwelle der Sommerlüftung) setzen wie das Bedienteil:
-  // 01 00 85 08 [CRC] 1B 00 [0x1B aktuell] 41 00 [Wert in 0,1 °C]. Braucht den aktuellen Wert von 0x1B.
+  // Sommerlüftung wie das Bedienteil im Menü "Sommerlüftung ohne Bypass", je 0,5er-Schritte:
+  // t_som 0x41 (20..30 °C), Hysterese H_som 0x43 (0,5..18 K), inaktiv unter 0x49 (12..20 °C)
   bool send_summer_threshold(float celsius);
+  bool send_summer_hysteresis(float kelvin);
+  bool send_summer_min_outside(float celsius);
   // Dauer der Stoßlüftung setzen wie das Bedienteil: 01 00 85 03 [CRC] 3B 00 [Minuten], 15..120 in 5er-Schritten
   bool send_boost_duration(float minutes);
   // Anlage ein/aus wie das Bedienteil. Aus: 07 00 00, An: 07 00 01 0E 00 00 (löst Neuanmeldung aller Geräte aus).

@@ -136,7 +136,7 @@ number:
     command_topic: kwl/number/sommerlueftung_schwelle_setzen/command
     icon: mdi:thermometer-chevron-up
     unit_of_measurement: "°C"
-    min_value: 18
+    min_value: 20
     max_value: 30
     step: 0.5
     mode: box
@@ -148,6 +148,50 @@ number:
       return v;
     set_action:
       - lambda: id(kwl_bus).send_summer_threshold(x);
+
+  # Hysterese H_som (0x43) und "inaktiv unter" (0x49, Außenluft) wie am Bedienteil, je 0,5er-Schritte
+  - platform: template
+    name: "Sommerlüftung Hysterese setzen"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 65
+    state_topic: kwl/number/sommerlueftung_hysterese_setzen/state
+    command_topic: kwl/number/sommerlueftung_hysterese_setzen/command
+    icon: mdi:arrow-expand-vertical
+    unit_of_measurement: "K"
+    min_value: 0.5
+    max_value: 18
+    step: 0.5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(sommer_hysterese).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_summer_hysteresis(x);
+  - platform: template
+    name: "Sommerlüftung inaktiv unter setzen"
+    web_server:
+      sorting_group_id: grp_sommer
+      sorting_weight: 75
+    state_topic: kwl/number/sommerlueftung_inaktiv_unter_setzen/state
+    command_topic: kwl/number/sommerlueftung_inaktiv_unter_setzen/command
+    icon: mdi:thermometer-chevron-down
+    unit_of_measurement: "°C"
+    min_value: 12
+    max_value: 20
+    step: 0.5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(sommer_min_aussen).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_summer_min_outside(x);
 
   # Bereich und Schritt wie am Bedienteil: 15..120 min in 5er-Schritten
   - platform: template
@@ -578,6 +622,7 @@ climos:
       sorting_weight: 40
     state_topic: kwl/sensor/sommerlueftung_schwelle/state
   summer_min_outside:
+    id: sommer_min_aussen
     name: "Sommerlüftung Min. Außenluft"
     web_server:
       sorting_group_id: grp_sommer
@@ -623,6 +668,7 @@ climos:
       sorting_weight: 60
   # Nur im Komplett-Abzug: Hysterese H_som und Haken "Sommerlüftung aktiv" im Bedienteil
   summer_hysteresis:
+    id: sommer_hysterese
     name: "Sommerlüftung Hysterese"
     web_server:
       sorting_group_id: grp_sommer

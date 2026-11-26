@@ -132,9 +132,13 @@ static const int32_t CLOCK_CONFIRM_TOLERANCE_S = 10;
 static const int32_t CLOCK_SYNC_THRESHOLD_S = 60;
 static const uint8_t ADDR_PANEL = 0x04;
 static const uint8_t ADDR_FAN_UNIT = 0x08;
-// t_som: Grenzen zur Sicherheit (am Bedienteil gesehen: 24,5 °C, Schritt 0,5 K vermutet)
-static const float SUMMER_THRESHOLD_MIN = 18.0f;
+// Sommerlüftung: Bereiche und Schritt (0,5) wie am Bedienteil (2026-11-26)
+static const float SUMMER_THRESHOLD_MIN = 20.0f;   // t_som
 static const float SUMMER_THRESHOLD_MAX = 30.0f;
+static const float SUMMER_HYSTERESIS_MIN = 0.5f;   // H_som
+static const float SUMMER_HYSTERESIS_MAX = 18.0f;
+static const float SUMMER_MIN_OUTSIDE_MIN = 12.0f;  // inaktiv unter (Außenluft)
+static const float SUMMER_MIN_OUTSIDE_MAX = 20.0f;
 // Dauer der Stoßlüftung: Bereich und Schritt wie am Bedienteil (2026-11-25)
 static const uint8_t BOOST_DURATION_MIN = 15;
 static const uint8_t BOOST_DURATION_MAX = 120;
@@ -907,28 +911,58 @@ bool Climos::send_current_operating_mode() {
   return send_operating_mode(current_mode_);
 }
 
+// Halbe Grad/Kelvin wie am Bedienteil: Wert in 0,1 als ganze Zahl, nur Vielfache von 5
+static bool half_step_value(float value, float min, float max, int16_t &raw) {
+  if (std::isnan(value) || value < min - 0.01f || value > max + 0.01f)
+    return false;
+  const long tenths = std::lround(value * 10.0f);
+  if (tenths % 5 != 0)
+    return false;
+  raw = static_cast<int16_t>(tenths);
+  return true;
+}
+
 bool Climos::send_summer_threshold(float celsius) {
-  if (std::isnan(celsius) || celsius < SUMMER_THRESHOLD_MIN || celsius > SUMMER_THRESHOLD_MAX) {
-    ESP_LOGW(TAG, "t_som %.1f °C ungültig, erlaubt sind %.1f..%.1f °C", celsius, SUMMER_THRESHOLD_MIN,
-             SUMMER_THRESHOLD_MAX);
+  int16_t raw;
+  if (!half_step_value(celsius, SUMMER_THRESHOLD_MIN, SUMMER_THRESHOLD_MAX, raw)) {
+    ESP_LOGW(TAG, "t_som %.1f °C ungültig, erlaubt sind %.1f..%.1f °C in 0,5er-Schritten", celsius,
+             SUMMER_THRESHOLD_MIN, SUMMER_THRESHOLD_MAX);
     return false;
   }
   char label[32];
-  std::snprintf(label, sizeof(label), "t_som %.1f °C", celsius);
-  if (!has_features_) {
-    // Das Bedienteil schickt 0x1B immer mit; ohne den aktuellen Wert könnten wir Freigaben verstellen
-    ESP_LOGW(TAG, "t_som nicht gesendet: Wert von 0x1B unbekannt (kommt erst mit dem Komplett-Abzug)");
-    publish_send_status_((std::string("nicht möglich (0x1B unbekannt): ") + label).c_str());
+  std::snprintf(label, sizeof(label), "t_som %.1f °C", raw / 10.0f);
+  // Wie das Bedienteil im Menü Sommerlüftung (2026-11-26): 0x41 allein, ohne 0x1B
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD & 0xFF),
+                             static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD >> 8), static_cast<uint8_t>(raw & 0xFF),
+                             static_cast<uint8_t>((raw >> 8) & 0xFF)};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_summer_hysteresis(float kelvin) {
+  int16_t raw;
+  if (!half_step_value(kelvin, SUMMER_HYSTERESIS_MIN, SUMMER_HYSTERESIS_MAX, raw)) {
+    ESP_LOGW(TAG, "H_som %.1f K ungültig, erlaubt sind %.1f..%.1f K in 0,5er-Schritten", kelvin, SUMMER_HYSTERESIS_MIN,
+             SUMMER_HYSTERESIS_MAX);
     return false;
   }
-  const int16_t raw = static_cast<int16_t>(std::lround(celsius * 10.0f));
-  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_FEATURES & 0xFF),
-                             static_cast<uint8_t>(OBJ_FEATURES >> 8),
-                             features_raw_[0],
-                             features_raw_[1],
-                             static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD & 0xFF),
-                             static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD >> 8),
-                             static_cast<uint8_t>(raw & 0xFF),
+  char label[32];
+  std::snprintf(label, sizeof(label), "H_som %.1f K", raw / 10.0f);
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_SUMMER_HYSTERESIS & 0xFF),
+                             static_cast<uint8_t>(OBJ_SUMMER_HYSTERESIS >> 8), static_cast<uint8_t>(raw)};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_summer_min_outside(float celsius) {
+  int16_t raw;
+  if (!half_step_value(celsius, SUMMER_MIN_OUTSIDE_MIN, SUMMER_MIN_OUTSIDE_MAX, raw)) {
+    ESP_LOGW(TAG, "Sommerlüftung inaktiv unter %.1f °C ungültig, erlaubt sind %.1f..%.1f °C in 0,5er-Schritten",
+             celsius, SUMMER_MIN_OUTSIDE_MIN, SUMMER_MIN_OUTSIDE_MAX);
+    return false;
+  }
+  char label[40];
+  std::snprintf(label, sizeof(label), "Sommer inaktiv unter %.1f °C", raw / 10.0f);
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_SUMMER_MIN_OUTSIDE & 0xFF),
+                             static_cast<uint8_t>(OBJ_SUMMER_MIN_OUTSIDE >> 8), static_cast<uint8_t>(raw & 0xFF),
                              static_cast<uint8_t>((raw >> 8) & 0xFF)};
   return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
 }

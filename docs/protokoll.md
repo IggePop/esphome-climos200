@@ -113,7 +113,19 @@ Reaktion nach dem Senden im Fenster (gemessen):
   `29 00 <Code>`. **0x29 ist die Rückfall-Betriebsart nach der Stoßlüftung**, bei Stoßlüftung bleibt sie.
 - ~1 s: Das Bedienteil sendet die neue Betriebsart selbst (`28 00 <Code>`) und zeigt sie an.
 
-## t_som (Objekt 0x41)
+## Sommerlüftung: t_som (0x41), Hysterese (0x43), inaktiv unter (0x49)
+
+Im Menü „Sommerlüftung ohne Bypass“ schickt das Bedienteil jeden Wert einzeln (Mitschnitt 2026-11-26):
+
+```
+01 00 85 04 .. .. 41 00 FA 00      Temperatur t_som 25,0 °C   (20–30 °C, Schritt 0,5)
+01 00 85 03 .. .. 43 00 05         Hysterese H_som 0,5 K      (0,5–18 K, Schritt 0,5)
+01 00 85 04 .. .. 49 00 82 00      inaktiv unter 13,0 °C      (12–20 °C, Schritt 0,5)
+```
+
+Die Komponente sendet t_som jetzt ebenso allein. Früher gesehen (aus einem anderen Menü?):
+
+
 
 Frame wie vom Bedienteil, `0x1B` (Freigaben) wird immer mit dem aktuellen Wert mitgesendet:
 
