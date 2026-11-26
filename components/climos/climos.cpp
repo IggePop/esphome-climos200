@@ -112,7 +112,11 @@ static const uint8_t ADDR_BROADCAST = 0xFF;
 static const uint32_t SEND_WINDOW_MIN_MS = 15;
 static const uint32_t SEND_WINDOW_MAX_MS = 40;
 // Vorgemerktes Frame verfällt, wenn kein Fenster kam (Fenster etwa alle 9 s)
-static const uint32_t SEND_PENDING_TIMEOUT_MS = 30000;
+static const uint32_t SEND_PENDING_TIMEOUT_MS = 60000;
+// Der Master fragt die Quittung beim Gerät ab, das im Zyklus als nächstes dran ist: lag vor dem Fenster 04,
+// fragt er 08 (2026-11-26: 5 von 5), lag 08, fragt er meist nur 04. Einstellwerte brauchen die Quittung von 08,
+// daher Fenster nach 08 überspringen, höchstens so oft hintereinander
+static const uint8_t MAX_WINDOW_SKIPS = 3;
 // Testsegment ohne KWL: sofort senden, wenn der Bus so lange still war. Am echten Bus kommt
 // etwa alle 1,5 ms ein Frame, dort greift dieser Weg also nie.
 static const uint32_t SEND_BUS_SILENCE_MS = 2000;
@@ -1593,8 +1597,16 @@ void Climos::loop_send_() {
     ff_poll_seen_ = false;
     return;
   }
-  char how[40];
-  std::snprintf(how, sizeof(how), "Fenster nach FF, +%u ms", static_cast<unsigned int>(since_poll));
+  if (pending_kind_ == CONFIRM_ACK && poll_before_ff_ == ADDR_FAN_UNIT && window_skips_ < MAX_WINDOW_SKIPS) {
+    window_skips_++;
+    ESP_LOGI(TAG, "Fenster übersprungen (vorher 08 gepollt, Quittung käme vom Bedienteil), %u/%u",
+             static_cast<unsigned int>(window_skips_), static_cast<unsigned int>(MAX_WINDOW_SKIPS));
+    ff_poll_seen_ = false;
+    return;
+  }
+  char how[48];
+  std::snprintf(how, sizeof(how), "Fenster nach FF, +%u ms, vorher %02X", static_cast<unsigned int>(since_poll),
+                poll_before_ff_);
   transmit_pending_(how, now);
   ff_poll_seen_ = false;
 }
@@ -1640,6 +1652,7 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
     clear_pending_();
     return false;
   }
+  window_skips_ = 0;
   if (ack_track_active_)
     finish_ack_track_();
   ack_track_active_ = true;

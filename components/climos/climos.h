@@ -279,6 +279,7 @@ class Climos : public Component, public uart::UARTDevice {
   uint8_t ack_track_poll_before_{0}; // letzter Einzel-Poll vor dem Fenster
   uint8_t last_unicast_poll_{0};
   uint8_t poll_before_ff_{0};
+  uint8_t window_skips_{0};          // übersprungene Fenster für das aktuelle Frame
   uint32_t ack_stats_[2][2]{};       // [Poll vor FF: 0 = 04, 1 = 08][Lüftergerät gefragt]
   uint32_t ack_stats_other_{0};
   void finish_ack_track_();
