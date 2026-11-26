@@ -170,6 +170,11 @@ static const uint8_t FROST_MODE_MAX = 2;
 // Frostschutzschwelle minimale Zulufttemperatur, 0,1 °C (Werkseinstellung 5,0 °C)
 static const uint16_t OBJ_FROST_MIN_SUPPLY = 0x0047;
 // Filter-Intervall am Bedienteil: 30..180 Tage in 10er-Schritten
+// Frostschutzschwellen am Bedienteil (Setup): Außenluft -12..10 °C, minimale Zuluft 4..10 °C, je 0,5er-Schritte
+static const float FROST_THRESHOLD_MIN = -12.0f;
+static const float FROST_THRESHOLD_MAX = 10.0f;
+static const float FROST_MIN_SUPPLY_MIN = 4.0f;
+static const float FROST_MIN_SUPPLY_MAX = 10.0f;
 static const uint16_t FILTER_INTERVAL_MIN = 30;
 static const uint16_t FILTER_INTERVAL_MAX = 180;
 static const uint16_t FILTER_INTERVAL_STEP = 10;
@@ -935,6 +940,42 @@ bool Climos::send_summer_threshold(float celsius) {
   // Wie das Bedienteil im Menü Sommerlüftung (2026-11-26): 0x41 allein, ohne 0x1B
   const uint8_t payload[] = {static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD & 0xFF),
                              static_cast<uint8_t>(OBJ_SUMMER_THRESHOLD >> 8), static_cast<uint8_t>(raw & 0xFF),
+                             static_cast<uint8_t>((raw >> 8) & 0xFF)};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_frost_threshold(uint8_t mode, float celsius) {
+  // Register 0x4A = sicher, 0x4B = eco, 0x4C = Feuchte-WT (am Bedienteil bestätigt)
+  static const uint16_t IDS[] = {OBJ_FIRST_FROST_THRESHOLD + 1, OBJ_FIRST_FROST_THRESHOLD, OBJ_FIRST_FROST_THRESHOLD + 2};
+  if (mode > FROST_MODE_MAX) {
+    ESP_LOGW(TAG, "Frostschutz-Art %u ungültig", mode);
+    return false;
+  }
+  int16_t raw;
+  if (!half_step_value(celsius, FROST_THRESHOLD_MIN, FROST_THRESHOLD_MAX, raw)) {
+    ESP_LOGW(TAG, "Frostschutzschwelle %.1f °C ungültig, erlaubt sind %.1f..%.1f °C in 0,5er-Schritten", celsius,
+             FROST_THRESHOLD_MIN, FROST_THRESHOLD_MAX);
+    return false;
+  }
+  char label[48];
+  std::snprintf(label, sizeof(label), "Frostschutzschwelle %s %.1f °C", frost_mode_to_string(mode), raw / 10.0f);
+  const uint16_t id = IDS[mode];
+  const uint8_t payload[] = {static_cast<uint8_t>(id & 0xFF), static_cast<uint8_t>(id >> 8),
+                             static_cast<uint8_t>(raw & 0xFF), static_cast<uint8_t>((raw >> 8) & 0xFF)};
+  return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
+}
+
+bool Climos::send_frost_min_supply(float celsius) {
+  int16_t raw;
+  if (!half_step_value(celsius, FROST_MIN_SUPPLY_MIN, FROST_MIN_SUPPLY_MAX, raw)) {
+    ESP_LOGW(TAG, "Frostschutz min. Zuluft %.1f °C ungültig, erlaubt sind %.1f..%.1f °C in 0,5er-Schritten", celsius,
+             FROST_MIN_SUPPLY_MIN, FROST_MIN_SUPPLY_MAX);
+    return false;
+  }
+  char label[48];
+  std::snprintf(label, sizeof(label), "Frostschutz min. Zuluft %.1f °C", raw / 10.0f);
+  const uint8_t payload[] = {static_cast<uint8_t>(OBJ_FROST_MIN_SUPPLY & 0xFF),
+                             static_cast<uint8_t>(OBJ_FROST_MIN_SUPPLY >> 8), static_cast<uint8_t>(raw & 0xFF),
                              static_cast<uint8_t>((raw >> 8) & 0xFF)};
   return queue_request_(payload, sizeof(payload), CONFIRM_ACK, 0, label);
 }

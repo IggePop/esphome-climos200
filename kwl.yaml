@@ -278,6 +278,85 @@ number:
     set_action:
       - lambda: id(kwl_bus).send_filter_interval(x);
 
+  # Frostschutzschwellen (Setup am Bedienteil): Außenluft eco/sicher/Feuchte-WT -12..10 °C, minimale Zuluft
+  # 4..10 °C, je 0,5er-Schritte. Übernahme erst nach Quittung des Lüftergeräts.
+  - platform: template
+    name: "Frostschutz-Schwelle eco setzen"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 35
+    icon: mdi:snowflake-alert
+    unit_of_measurement: "°C"
+    min_value: -12
+    max_value: 10
+    step: 0.5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(frost_eco).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_frost_threshold(0, x);
+  - platform: template
+    name: "Frostschutz-Schwelle sicher setzen"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 45
+    icon: mdi:snowflake-alert
+    unit_of_measurement: "°C"
+    min_value: -12
+    max_value: 10
+    step: 0.5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(frost_sicher).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_frost_threshold(1, x);
+  - platform: template
+    name: "Frostschutz-Schwelle Feuchte-WT setzen"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 55
+    icon: mdi:snowflake-alert
+    unit_of_measurement: "°C"
+    min_value: -12
+    max_value: 10
+    step: 0.5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(frost_feuchte).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_frost_threshold(2, x);
+  - platform: template
+    name: "Frostschutz-Schwelle min. Zuluft setzen"
+    web_server:
+      sorting_group_id: grp_frost
+      sorting_weight: 65
+    icon: mdi:thermometer-low
+    unit_of_measurement: "°C"
+    min_value: 4
+    max_value: 10
+    step: 0.5
+    mode: box
+    update_interval: 5s
+    lambda: |-
+      const float v = id(frost_min_zuluft).state;
+      if (std::isnan(v))
+        return {};
+      return v;
+    set_action:
+      - lambda: id(kwl_bus).send_frost_min_supply(x);
+
 # Wochenprogramm setzen: je Tag oder als Gruppe Mo-Fr bzw. Sa-So (alle Tage der Gruppe gleich).
 # Format wie in der Anzeige: "00:00 Stufe 1, 07:00 Stufe 2, 20:00 Stufe 1", Zeiten in Viertelstunden,
 # erster Eintrag 00:00, Stufen "aus" und "Stufe 1".."Stufe 3". Ungültige Eingaben werden abgelehnt
@@ -739,22 +818,26 @@ climos:
   # Frostschutzschwellen Außenluft: 0x4A = sicher, 0x4B = eco, 0x4C = Feuchte-WT (Bedienteil zeigt
   # eco, sicher, Feuchte-WT und sendet dabei 4B, 4A, 4C; Werkseinstellung -3,0 / -2,0 / -3,0 °C)
   frost_threshold_1:
+    id: frost_sicher
     name: "Frostschutz-Schwelle sicher"
     web_server:
       sorting_group_id: grp_frost
       sorting_weight: 40
   frost_threshold_2:
+    id: frost_eco
     name: "Frostschutz-Schwelle eco"
     web_server:
       sorting_group_id: grp_frost
       sorting_weight: 30
   frost_threshold_3:
+    id: frost_feuchte
     name: "Frostschutz-Schwelle Feuchte-WT"
     web_server:
       sorting_group_id: grp_frost
       sorting_weight: 50
   # Frostschutzschwelle minimale Zulufttemperatur (0x47, Werkseinstellung 5,0 °C)
   frost_min_supply:
+    id: frost_min_zuluft
     name: "Frostschutz-Schwelle min. Zuluft"
     web_server:
       sorting_group_id: grp_frost

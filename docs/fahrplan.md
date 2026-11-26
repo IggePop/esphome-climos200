@@ -395,6 +395,18 @@ machen zu müssen.
       dazu 0x42: obere Schwelle = **0x41** (`FF`->`FA`, 25,5->25,0), **untere Schwelle = 0x42** (2 Byte, 0,1 °C,
       `B9`->`B4` = 18,5->18,0, Bereich 13..19,5), Hysterese = **0x43** (`0A`->`05`), geschlossen unter = **0x49**
       (`87`->`82`). Anlage ohne Bypass: 0x42 nur dokumentiert, nicht gesendet
+- [x] **Abgleich mit der Betriebsanleitung CLIMOS F 200 (Version 2.0_03/2019)** (2026-11-26). Noch offen laut Anleitung:
+      - [x] Frostschutzschwellen setzbar (kompiliert, Flash + Test offen): Außenluft -12..10, min. Zuluft 4..10, je 0,5
+      - Setup: LS2 und Disbalance je Stufe (-50..+50 %) setzen -> Einregulierung, nur für Fachkraft, eher nicht
+      - Meldungstexte (Tab. 39) den Codes zuordnen; bekannt: 0x86 = Außentemperatur zu niedrig (6. Eintrag der Tabelle),
+        0xC4 beim falsch eingetragenen Defroster -> vermutlich "Kommunikationsfehler Defroster"; 0x09 als "Aktuelle Meldung"
+      - "Filterlaufzeit um xxx Tage überschritten" (Zähler, evtl. 0x3F)
+      - Automatik-Art Zeit-/Sensorautomatik und Sensor-Kennlinie (0x4D..0x54), Bildschirm-Abdunkelung, Tastensperre,
+        Sprache: nicht nötig bzw. nur Bedienteil
+      - Nachheizung, EWT-Klappe (t_aut_max 15..30, t_aut_min -10..14,5), Kühlung Sole-Defroster (t_sol 15..30):
+        Hardware nicht verbaut
+      - **Hinweis Anleitung S. 38: Bedienteil nur spannungsfrei vom Bus trennen, im Betrieb -> Kommunikationsfehler.**
+        Der geplante Test "Bedienteil abziehen" also nur mit stromloser Anlage (dann kommt der Abzug ohnehin)
 - [x] Webserver auf `auth: type: digest` umgestellt (ab ESPHome 2027.1 Standard), capture.py kann Digest
 
 ## Test: Prüfen die Geräte das 9. Bit?

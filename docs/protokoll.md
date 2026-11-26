@@ -278,8 +278,8 @@ Ein Tag (z. B. Mittwoch):
 | `0x43` | 1 | H_som, Hysterese Sommerlüftung/Bypass (0,1 K, 0,5–18) |
 | `0x44` | 1 | unbekannt, steigt nach dem Einschalten (Lüfterhochlauf?) |
 | `0x49` | 2 | Sommerlüftung inaktiv / Bypass geschlossen unter (Außenluft, 0,1 °C, 12–20) |
-| `0x47` | 2 | Frostschutzschwelle minimale Zulufttemperatur (0,1 °C, Werkseinstellung 5,0 °C) |
-| `0x4A`–`0x4C` | 2 | Frostschutzschwellen Außenluft (0,1 °C): **0x4A sicher, 0x4B eco, 0x4C Feuchte-WT** (Werkseinstellung −2,0 / −3,0 / −3,0 °C; am Bedienteil bestätigt) |
+| `0x47` | 2 | Frostschutzschwelle minimale Zulufttemperatur (0,1 °C, 4–10, Werkseinstellung 5,0 °C) |
+| `0x4A`–`0x4C` | 2 | Frostschutzschwellen Außenluft (0,1 °C, −12–10): **0x4A sicher, 0x4B eco, 0x4C Feuchte-WT** (Werkseinstellung −2,0 / −3,0 / −3,0 °C; am Bedienteil bestätigt) |
 | `0x4D`–`0x50` | 1 | Kennlinie 0-10-V-Eingang: U_min (0,1 V), n_min %, U_max, n_max (17, 17, 100, 100)¹ |
 | `0x51`–`0x54` | 1 | Kennlinie 4-20-mA-Eingang: I_min, n_min, I_max, n_max¹ |
 | `0x55` | 2 | Stellwert 0-10-V-Eingang (0,1 %) |

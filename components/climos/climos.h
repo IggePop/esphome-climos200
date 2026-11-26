@@ -82,6 +82,11 @@ class Climos : public Component, public uart::UARTDevice {
   bool send_frost_mode(uint8_t mode);
   // Laufzeit pro Stunde bei Abwesend setzen (0x3C): 15, 30 oder 45 min wie am Bedienteil
   bool send_away_interval(uint8_t minutes);
+  // Frostschutzschwelle Außenluft setzen (Setup am Bedienteil), mode wie 0x7B: 0 = eco (0x4B), 1 = sicher (0x4A),
+  // 2 = Feuchte-WT (0x4C); -12..10 °C in 0,5er-Schritten
+  bool send_frost_threshold(uint8_t mode, float celsius);
+  // Frostschutzschwelle minimale Zulufttemperatur (0x47): 4..10 °C in 0,5er-Schritten
+  bool send_frost_min_supply(float celsius);
   // Filter-Intervall setzen (0x3D allein, wie das Bedienteil beim Einstellen): 30..180 Tage in 10er-Schritten
   bool send_filter_interval(float days);
   // Filter-Reset wie das Bedienteil: 0x3D und 0x3E in einem Frame, beide = aktuelles Intervall

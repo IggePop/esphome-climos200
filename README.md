@@ -25,7 +25,8 @@ Frostschutz-Art sowie Datum und Uhrzeit der Anlage mit der Abweichung zur NTP-Ze
   - Sommerlüftung: t_som 20–30 °C, Hysterese 0,5–18 K, inaktiv unter 12–20 °C, je 0,5er-Schritte
   - Dauer der Stoßlüftung, 15–120 min in 5er-Schritten
   - Leistung Stufe 1 und Stufe 3, 17–100 % (Stufe 2 ist fest 60 %)
-  - Frostschutz-Art (eco, sicher, Feuchte-WT) über ein `select`
+  - Frostschutz-Art (eco, sicher, Feuchte-WT) über ein `select`, dazu die Frostschutzschwellen
+    (Außenluft eco/sicher/Feuchte-WT −12…10 °C, minimale Zuluft 4…10 °C, je 0,5er-Schritte)
   - Laufzeit bei Abwesend (15/30/45 min je Stunde) über ein `select`
   - Filter-Intervall, 30–180 Tage in 10er-Schritten, und **Filter-Reset** per Knopf (wie am Bedienteil)
   - Sommerlüftung freigeben/sperren über einen `switch` (nur Bit 7 von 0x1B, beim Start wird nichts gesendet)
