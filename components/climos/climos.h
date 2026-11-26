@@ -147,6 +147,8 @@ class Climos : public Component, public uart::UARTDevice {
   void set_send_status_text_sensor(text_sensor::TextSensor *sensor) { send_status_text_sensor_ = sensor; }
   void set_frost_mode_text_sensor(text_sensor::TextSensor *sensor) { frost_mode_text_sensor_ = sensor; }
   void set_panel_clock_text_sensor(text_sensor::TextSensor *sensor) { panel_clock_text_sensor_ = sensor; }
+  // Diagnose: wie oft fragt der Master nach unserem Frame auch das Lüftergerät (86 an 08)?
+  void set_ack_stats_text_sensor(text_sensor::TextSensor *sensor) { ack_stats_text_sensor_ = sensor; }
 
  protected:
   bool try_parse_frame_();
@@ -249,6 +251,17 @@ class Climos : public Component, public uart::UARTDevice {
   ExtraStore extra_{};
   void setup_extra_settings_();
   bool remember_extra_setting_(uint16_t id, const uint8_t *value, uint8_t length);
+  // Statistik der Quittungsabfragen nach eigenen Frames (bis zum nächsten Poll an FF)
+  text_sensor::TextSensor *ack_stats_text_sensor_{nullptr};
+  bool ack_track_active_{false};
+  uint8_t ack_track_mask_{0};        // Bit 0: 86 an 04, Bit 1: 86 an 08, Bit 2: andere
+  uint8_t ack_track_first_poll_{0};  // erster Einzel-Poll nach unserem Frame
+  uint8_t ack_track_poll_before_{0}; // letzter Einzel-Poll vor dem Fenster
+  uint8_t last_unicast_poll_{0};
+  uint8_t poll_before_ff_{0};
+  uint32_t ack_stats_[2][2]{};       // [Poll vor FF: 0 = 04, 1 = 08][Lüftergerät gefragt]
+  uint32_t ack_stats_other_{0};
+  void finish_ack_track_();
   // Erstes Byte des gerade verarbeiteten Frames (00 = Echo des Masters)
   uint8_t frame_first_byte_{0};
   // An wen ging das letzte 86 (Bestätigung anfordern)? Die folgende 87 kommt von diesem Gerät.

@@ -125,7 +125,7 @@ select:
 # Einstellwerte. Zeigen den Wert vom Bus, senden nur bei Eingabe. Kein Gerät meldet Einstellwerte
 # zurück (auch nicht bei Änderung am Bedienteil). Ergebnis in "Letztes Senden": "angenommen
 # (Lüftergerät)" = das Lüftergerät hat den Empfang quittiert (86/87), erst dann übernimmt der
-# Sensor den Wert. Quittiert nur das Bedienteil, wird wiederholt (max. 5 Versuche).
+# Sensor den Wert. Quittiert nur das Bedienteil, wird wiederholt (max. 8 Versuche).
 number:
   - platform: template
     name: "Sommerlüftung Schwelle setzen"
@@ -362,7 +362,7 @@ number:
 # erster Eintrag 00:00, Stufen "aus" und "Stufe 1".."Stufe 3". Ungültige Eingaben werden abgelehnt
 # (Grund in "Letztes Senden"). Gesendet werden nur die Register der gewählten Tage, höchstens 6 je
 # Frame wie vom Bedienteil (Mo-Fr 3 Frames, Sa-So 1, ein Tag 1), je Sendefenster eins (Mo-Fr ~20 s).
-# Jedes Frame muss das Lüftergerät quittieren, sonst bis zu 5 Versuche je Frame.
+# Jedes Frame muss das Lüftergerät quittieren, sonst bis zu 8 Versuche je Frame.
 # Die Gruppen zeigen den ersten Tag (Mo-Fr den Montag, Sa-So den Samstag). Tagesmaske: Bit 0 = Mo.
 text:
   - platform: template
@@ -604,6 +604,13 @@ climos:
     web_server:
       sorting_group_id: grp_betrieb
       sorting_weight: 80
+  # Diagnose: wen fragt der Master nach unseren Frames nach der Quittung (86)? Zählt je Frame, ob das
+  # Lüftergerät (08) gefragt wurde, getrennt nach dem zuletzt gepollten Gerät vor dem Sendefenster
+  ack_stats:
+    name: "Quittungsabfragen"
+    web_server:
+      sorting_group_id: grp_diagnose
+      sorting_weight: 105
   # Frostschutz-Art: eco / sicher / Feuchte-WT (im Flash gehalten)
   frost_mode:
     id: frostschutz_art

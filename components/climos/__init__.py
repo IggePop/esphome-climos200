@@ -60,6 +60,8 @@ CONF_SEND_STATUS = "send_status"
 # Frostschutz-Art (0x7B) und Uhr der Anlage (0x01/0x02 aus dem Zeit-Frame)
 CONF_FROST_MODE = "frost_mode"
 CONF_PANEL_CLOCK = "panel_clock"
+# Diagnose: Statistik der Quittungsabfragen nach eigenen Frames
+CONF_ACK_STATS = "ack_stats"
 
 FILTER_DAYS_SCHEMA = sensor.sensor_schema(
     unit_of_measurement=UNIT_DAYS,
@@ -125,6 +127,7 @@ TEXT_SENSOR_KEYS = (
     CONF_SEND_STATUS,
     CONF_FROST_MODE,
     CONF_PANEL_CLOCK,
+    CONF_ACK_STATS,
 )
 
 OPERATING_HOURS_SCHEMA = sensor.sensor_schema(

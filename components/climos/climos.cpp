@@ -124,7 +124,7 @@ static const uint16_t OBJ_MODE_FALLBACK = 0x0029;
 static const uint32_t SEND_CONFIRM_MS = 3000;
 static const uint8_t SEND_MAX_ATTEMPTS = 3;
 // Einstellwerte: der Master fragt die Quittung oft nur beim Bedienteil ab, daher mehr Versuche
-static const uint8_t SEND_MAX_ATTEMPTS_ACK = 5;
+static const uint8_t SEND_MAX_ATTEMPTS_ACK = 8;
 // Datum/Uhrzeit: Bestätigung spätestens mit dem nächsten Zeit-Frame (alle 5 s)
 static const uint32_t ECHO_CONFIRM_MS = 7000;
 static const int32_t CLOCK_CONFIRM_TOLERANCE_S = 10;
@@ -501,7 +501,19 @@ void Climos::handle_frame_(const uint8_t *frame, size_t size) {
 
   dump_frame_("Frame", frame, size);
 
+  if (ack_track_active_) {
+    if (cmd == CMD_CONFIRM_REQUEST)
+      ack_track_mask_ |= dst == ADDR_PANEL ? 1 : (dst == ADDR_FAN_UNIT ? 2 : 4);
+    if (cmd == CMD_POLL && dst != ADDR_BROADCAST && ack_track_first_poll_ == 0)
+      ack_track_first_poll_ = dst;
+    if (cmd == CMD_POLL && dst == ADDR_BROADCAST)
+      finish_ack_track_();
+  }
   if (cmd == CMD_POLL) {
+    if (dst != ADDR_BROADCAST)
+      last_unicast_poll_ = dst;
+    else
+      poll_before_ff_ = last_unicast_poll_;
     last_polled_ = dst;
     if (dst == ADDR_BROADCAST && payload_size == 0) {
       // Bytes, die im Puffer schon hinter diesem Frame stehen, zählen als "nach dem Poll"
@@ -1502,6 +1514,33 @@ void Climos::loop_send_() {
   ff_poll_seen_ = false;
 }
 
+// Auswertung der Quittungsabfragen nach einem eigenen Frame: wen hat der Master gefragt, und hängt das
+// davon ab, welches Gerät vor dem Fenster zuletzt gepollt wurde?
+void Climos::finish_ack_track_() {
+  ack_track_active_ = false;
+  const bool fan = ack_track_mask_ & 2;
+  if (ack_track_poll_before_ == ADDR_PANEL || ack_track_poll_before_ == ADDR_FAN_UNIT) {
+    ack_stats_[ack_track_poll_before_ == ADDR_FAN_UNIT ? 1 : 0][fan ? 1 : 0]++;
+  } else {
+    ack_stats_other_++;
+  }
+  ESP_LOGI(TAG, "Quittungsabfrage: 86 an%s%s%s (Poll vor dem Fenster %02X, danach %02X)",
+           (ack_track_mask_ & 1) ? " 04" : "", fan ? " 08" : "", ack_track_mask_ == 0 ? " keinen" : "",
+           ack_track_poll_before_, ack_track_first_poll_);
+  if (ack_stats_text_sensor_ == nullptr)
+    return;
+  const uint32_t n04 = ack_stats_[0][0] + ack_stats_[0][1];
+  const uint32_t n08 = ack_stats_[1][0] + ack_stats_[1][1];
+  const uint32_t total = n04 + n08 + ack_stats_other_;
+  const uint32_t asked = ack_stats_[0][1] + ack_stats_[1][1];
+  char buf[96];
+  std::snprintf(buf, sizeof(buf), "%u Frames, 08 gefragt: %u; vor Fenster 04: %u/%u, 08: %u/%u",
+                static_cast<unsigned int>(total), static_cast<unsigned int>(asked),
+                static_cast<unsigned int>(ack_stats_[0][1]), static_cast<unsigned int>(n04),
+                static_cast<unsigned int>(ack_stats_[1][1]), static_cast<unsigned int>(n08));
+  ack_stats_text_sensor_->publish_state(buf);
+}
+
 bool Climos::transmit_pending_(const char *how, uint32_t now) {
   if (sender_.is_busy())
     return false;
@@ -1516,6 +1555,12 @@ bool Climos::transmit_pending_(const char *how, uint32_t now) {
     clear_pending_();
     return false;
   }
+  if (ack_track_active_)
+    finish_ack_track_();
+  ack_track_active_ = true;
+  ack_track_mask_ = 0;
+  ack_track_first_poll_ = 0;
+  ack_track_poll_before_ = poll_before_ff_;
   has_sent_ = true;
   last_send_time_ = now;
   watching_ = true;

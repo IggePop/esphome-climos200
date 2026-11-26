@@ -49,7 +49,8 @@ Frostschutz-Art sowie Datum und Uhrzeit der Anlage mit der Abweichung zur NTP-Ze
 Für alles gilt:
 
 - Gesendet wird nur im Fenster nach dem Broadcast-Poll `01 FF 84 00`, in dem kein anderes Gerät spricht.
-- Ohne Bestätigung wird wiederholt (Einstellwerte bis zu 5 Versuche, sonst 3, Anlage ein/aus nie).
+- Ohne Bestätigung wird wiederholt (Einstellwerte bis zu 8 Versuche, sonst 3, Anlage ein/aus nie;
+  der Diagnose-Sensor „Quittungsabfragen“ zählt mit, wie oft der Master auch das Lüftergerät fragt).
   Ergebnis im Sensor „Letztes Senden“.
 - Schalter „Senden aktiv“ als Not-Aus.
 - Eine Anmeldung als Bedienteil ist nicht nötig.
