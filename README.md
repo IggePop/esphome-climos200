@@ -52,12 +52,13 @@ Für alles gilt:
 - Gesendet wird nur im Fenster nach dem Broadcast-Poll `01 FF 84 00`, in dem kein anderes Gerät spricht.
 - Mehrere Einstellungen kurz hintereinander landen in einer Warteschlange (bis 8 Einträge) und gehen der Reihe
   nach raus, eine je Fenster (~9 s). Eine erneute Änderung desselben Werts ersetzt den wartenden Eintrag.
-  Wochenprogramm und Uhr laufen vollständig durch. „Senden aktiv“ aus leert die Warteschlange.
+  Wochenprogramm und Uhr laufen vollständig durch. „Senden aktiv“ aus leert die Warteschlange. Der Sensor
+  „Senden Warteschlange“ zeigt, wie viele Befehle noch warten (ohne den gerade laufenden).
 - Einstellwerte gehen bevorzugt in ein Fenster, vor dem der Master das Bedienteil abgefragt hat: Dann fragt er
   die Quittung beim Lüftergerät ab (sonst meist nur beim Bedienteil). Höchstens 3 Fenster werden übersprungen.
 - Ohne Bestätigung wird wiederholt (Einstellwerte bis zu 8 Versuche, sonst 3, Anlage ein/aus nie;
   der Diagnose-Sensor „Quittungsabfragen“ zählt mit, wie oft der Master auch das Lüftergerät fragt).
-  Ergebnis im Sensor „Letztes Senden“.
+  Ergebnis im Sensor „Senden Letzter Befehl“.
 - Schalter „Senden aktiv“ als Not-Aus.
 - Eine Anmeldung als Bedienteil ist nicht nötig.
 

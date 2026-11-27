@@ -434,6 +434,7 @@ void Climos::dump_config() {
     LOG_SENSOR("  ", "Frostschutz-Schwelle", frost_threshold_sensors_[i]);
   }
   LOG_SENSOR("  ", "Frostschutz min. Zuluft", frost_min_supply_sensor_);
+  LOG_SENSOR("  ", "Senden Warteschlange", queue_length_sensor_);
   LOG_BINARY_SENSOR("  ", "Sommerlüftung freigegeben", summer_enabled_binary_sensor_);
 }
 
@@ -450,6 +451,12 @@ void Climos::loop() {
   }
 
   loop_send_();
+
+  // Länge der Warteschlange nur bei Änderung senden (deckt Einreihen, Abarbeiten und Leeren ab)
+  if (queue_length_sensor_ != nullptr && static_cast<int>(queue_.size()) != queue_length_published_) {
+    queue_length_published_ = static_cast<int>(queue_.size());
+    queue_length_sensor_->publish_state(queue_length_published_);
+  }
 
   // Rest eines kaputten oder abgeschnittenen Frames: ein Byte weiter neu synchronisieren
   if (!rx_buffer_.empty() && millis() - last_byte_time_ > STALE_TIMEOUT_MS) {
@@ -1255,7 +1262,7 @@ bool Climos::send_schedule(uint8_t day_mask, const std::string &text) {
   static const char *const DAYS[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
   day_mask &= 0x7F;
   // Leerer Text kommt vom Broker beim Abonnieren (ioBroker "publishOnSubscribe" mit leerem Befehls-State):
-  // still ignorieren, sonst steht nach jedem Neustart "ungültig" in "Letztes Senden"
+  // still ignorieren, sonst steht nach jedem Neustart "ungültig" in "Senden Letzter Befehl"
   if (text.find_first_not_of(" \t\r\n") == std::string::npos) {
     ESP_LOGD(TAG, "Wochenprogramm: leerer Text ignoriert");
     return false;
@@ -1459,7 +1466,7 @@ void Climos::publish_send_status_(const char *what) {
     std::snprintf(buf, sizeof(buf), " (+%u in Warteschlange)", static_cast<unsigned int>(queue_.size()));
     text += buf;
   }
-  ESP_LOGI(TAG, "Letztes Senden: %s", text.c_str());
+  ESP_LOGI(TAG, "Senden Letzter Befehl: %s", text.c_str());
   if (send_status_text_sensor_ != nullptr)
     send_status_text_sensor_->publish_state(text);
 }

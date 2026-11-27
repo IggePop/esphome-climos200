@@ -142,6 +142,7 @@ class Climos : public Component, public uart::UARTDevice {
   // index 0..2 = Register 0x4A (sicher), 0x4B (eco), 0x4C (Feuchte-WT)
   void set_frost_threshold_sensor(uint8_t index, sensor::Sensor *sensor) { frost_threshold_sensors_[index] = sensor; }
   void set_frost_min_supply_sensor(sensor::Sensor *sensor) { frost_min_supply_sensor_ = sensor; }
+  void set_queue_length_sensor(sensor::Sensor *sensor) { queue_length_sensor_ = sensor; }
   void set_schedule_text_sensor(uint8_t day, text_sensor::TextSensor *sensor) { schedule_text_sensors_[day] = sensor; }
   void set_summer_enabled_binary_sensor(binary_sensor::BinarySensor *sensor) { summer_enabled_binary_sensor_ = sensor; }
   // Zustand der letzten Umschaltung (vorgemerkt, gesendet, bestätigt, keine Bestätigung, ...)
@@ -336,6 +337,9 @@ class Climos : public Component, public uart::UARTDevice {
   sensor::Sensor *debalance_sensors_[NUM_FAN_STAGES]{};
   sensor::Sensor *frost_threshold_sensors_[NUM_FROST_THRESHOLDS]{};
   sensor::Sensor *frost_min_supply_sensor_{nullptr};
+  // Wartende Anforderungen, nur bei Änderung veröffentlicht (-1 = noch nie)
+  sensor::Sensor *queue_length_sensor_{nullptr};
+  int queue_length_published_{-1};
   // Filter-Intervall in Tagen aus 0x3D (für den Filter-Reset)
   uint16_t filter_interval_days_{0};
   bool has_filter_interval_{false};

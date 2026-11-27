@@ -88,6 +88,8 @@ CONF_BOOST_DURATION = "boost_duration"
 CONF_AWAY_INTERVAL = "away_interval"
 # Frostschutzschwelle minimale Zulufttemperatur (0x47, 0,1 °C, Werkseinstellung 5,0 °C)
 CONF_FROST_MIN_SUPPLY = "frost_min_supply"
+# Anzahl der Anforderungen, die auf ein Sendefenster warten (ohne die gerade laufende)
+CONF_QUEUE_LENGTH = "queue_length"
 # Wochenprogramm je Tag (Objekte 0x64..0x78), nur im Komplett-Abzug
 SCHEDULE_KEYS = [
     "schedule_monday",
@@ -192,6 +194,11 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_BOOST_DURATION): SETTING_MINUTES_SCHEMA,
         cv.Optional(CONF_AWAY_INTERVAL): SETTING_MINUTES_SCHEMA,
         cv.Optional(CONF_FROST_MIN_SUPPLY): SETTING_TEMPERATURE_SCHEMA,
+        cv.Optional(CONF_QUEUE_LENGTH): sensor.sensor_schema(
+            accuracy_decimals=0,
+            icon="mdi:tray-full",
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        ),
         cv.Optional(CONF_ERROR_CODE): sensor.sensor_schema(
             accuracy_decimals=0,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -251,6 +258,7 @@ async def to_code(config):
         (CONF_BOOST_DURATION, var.set_boost_duration_sensor),
         (CONF_AWAY_INTERVAL, var.set_away_interval_sensor),
         (CONF_FROST_MIN_SUPPLY, var.set_frost_min_supply_sensor),
+        (CONF_QUEUE_LENGTH, var.set_queue_length_sensor),
     ):
         if key in config:
             sens = await sensor.new_sensor(config[key])
